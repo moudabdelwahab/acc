@@ -192,17 +192,22 @@
       });
     });
 
-    /* Load current session user (no invented data) */
+    /* Load current session user (no invented data). Row Level Security
+       blocks every table for anonymous visitors, so an unauthenticated
+       page can only show empty states — send them to login instead. */
     window.db.getSession().then(function (res) {
       var user = res && res.data && res.data.session ? res.data.session.user : null;
-      if (user) {
-        var email = user.email || '';
-        document.getElementById('userEmail').textContent = email;
-        document.getElementById('userName').textContent = email.split('@')[0] || 'حسابي';
-        document.getElementById('userAvatar').textContent = (email.charAt(0) || '—').toUpperCase();
-      } else {
+      if (!user) {
         document.getElementById('userEmail').textContent = 'غير مسجل الدخول';
+        if (window.db.isConfigured()) {
+          window.location.replace(inPagesDir ? '../login.html' : 'login.html');
+        }
+        return;
       }
+      var email = user.email || '';
+      document.getElementById('userEmail').textContent = email;
+      document.getElementById('userName').textContent = email.split('@')[0] || 'حسابي';
+      document.getElementById('userAvatar').textContent = (email.charAt(0) || '—').toUpperCase();
     });
   }
 
