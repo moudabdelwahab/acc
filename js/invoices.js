@@ -7,6 +7,9 @@
 (function () {
   'use strict';
 
+  /* نطاق منصة مدعوم — مصدر الشعار ورابط التحقق العام. */
+  var MAD3OOM_ORIGIN = 'https://mad3oom.online';
+
   var state = { invoices: [], customers: [], search: '', status: '', page: 1, perPage: 12, editingId: null };
 
   document.addEventListener('DOMContentLoaded', function () {
@@ -125,7 +128,10 @@
       '      <h3 class="modal__title" id="viewInvoiceTitle">تفاصيل الفاتورة</h3>' +
       '      <button class="modal__close" data-close-modal aria-label="إغلاق">' + window.utils.iconSvg('close') + '</button>' +
       '    </div>' +
-      '    <div class="modal__body" id="viewInvoiceBody"></div>' +
+      '    <div class="modal__body">' +
+      invoiceHeaderHtml() +
+      '      <div id="viewInvoiceBody"></div>' +
+      '    </div>' +
       '    <div class="modal__footer">' +
       '      <button type="button" class="btn btn--secondary" data-close-modal>إغلاق</button>' +
       '      <button type="button" class="btn btn--secondary" id="printInvoiceBtn">طباعة</button>' +
@@ -186,7 +192,7 @@
     box.innerHTML = window.utils.loadingHtml();
 
     window.db.fetchRows('invoices', {
-      select: 'id,invoice_number,customer_id,issue_date,due_date,subtotal,tax_amount,total,status,invoice_items(id,description,quantity,unit_price)',
+      select: 'id,invoice_number,customer_id,issue_date,due_date,subtotal,tax_amount,total,status,currency,public_url,invoice_items(id,description,quantity,unit_price)',
       order: { col: 'issue_date', ascending: false }
     }).then(function (res) {
       if (res.error) {
@@ -422,6 +428,37 @@
     }
   }
 
+  /* ترويسة الفاتورة: شعار منصة مدعوم واسمها. الشعار من نطاق المنصة
+     نفسه حتى يبقى مصدره واحداً ولا تُنسخ نسخة قديمة منه هنا. */
+  function invoiceHeaderHtml() {
+    return '<div class="invoice-brand">' +
+      '  <img class="invoice-brand__logo" src="' + MAD3OOM_ORIGIN + '/logo.png" alt="شعار منصة مدعوم">' +
+      '  <div>' +
+      '    <div class="invoice-brand__name">منصة مدعوم</div>' +
+      '    <div class="invoice-brand__sub">mad3oom.online</div>' +
+      '  </div>' +
+      '</div>';
+  }
+
+  /* رمز QR يفتح رابط التحقق العام على منصة مدعوم. يُرسم محلياً بلا
+     أي نداء خارجي، فلا يتسرب رقم الفاتورة إلى خدمة طرف ثالث. */
+  function renderInvoiceQr(url) {
+    var box = document.getElementById('invoiceQr');
+    if (!box || !url) return;
+
+    if (typeof window.QRCode === 'undefined') {
+      box.innerHTML = '<span class="text-muted fs-sm">تعذّر تحميل مكتبة رمز QR.</span>';
+      return;
+    }
+    box.innerHTML = '';
+    new window.QRCode(box, {
+      text: url,
+      width: 132,
+      height: 132,
+      correctLevel: window.QRCode.CorrectLevel.M
+    });
+  }
+
   function viewInvoice(inv) {
     var items = inv.invoice_items || [];
     var rows = items.map(function (it) {
@@ -445,10 +482,34 @@
       '<tfoot>' +
       '<tr><td colspan="3">الإجمالي الفرعي</td><td class="num">' + window.utils.formatAmount(inv.subtotal) + '</td></tr>' +
       '<tr><td colspan="3">الضريبة</td><td class="num">' + window.utils.formatAmount(inv.tax_amount) + '</td></tr>' +
-      '<tr><td colspan="3">الإجمالي المستحق</td><td class="num fw-bold">' + window.utils.formatAmount(inv.total) + '</td></tr>' +
-      '</tfoot></table></div>';
+      '<tr><td colspan="3">الإجمالي المستحق</td><td class="num fw-bold">' + window.utils.formatAmount(inv.total) +
+      ' ' + window.utils.escapeHtml(inv.currency || '') + '</td></tr>' +
+      '</tfoot></table></div>' +
+      verificationHtml(inv);
 
+    renderInvoiceQr(inv.public_url);
     window.utils.openModal('viewInvoiceModal');
+  }
+
+  /* قسم التحقق أسفل الفاتورة. لا يظهر رمز QR إلا بعد أن تسجّل
+     المزامنة الفاتورة لدى منصة مدعوم وتعيد رابطها العام. */
+  function verificationHtml(inv) {
+    if (!inv.public_url) {
+      return '<p class="text-muted fs-sm mt-4">' +
+        'يظهر رمز التحقق (QR) بعد تسجيل الفاتورة لدى منصة مدعوم.' +
+        '</p>';
+    }
+    return '<div class="invoice-verify mt-4">' +
+      '  <div id="invoiceQr" class="invoice-verify__qr"></div>' +
+      '  <div class="invoice-verify__text">' +
+      '    <div class="fw-bold">فاتورة صادرة عن منصة مدعوم</div>' +
+      '    <p class="text-muted fs-sm">امسح الرمز للتحقق من الفاتورة على ' +
+      '       <span class="num">mad3oom.online</span>.</p>' +
+      '    <a class="fs-sm num" href="' + window.utils.escapeHtml(inv.public_url) + '"' +
+      '       target="_blank" rel="noopener noreferrer">' +
+      window.utils.escapeHtml(inv.public_url) + '</a>' +
+      '  </div>' +
+      '</div>';
   }
 
   function deleteInvoice(inv) {

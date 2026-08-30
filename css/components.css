@@ -565,3 +565,34 @@ textarea.input { min-height: 84px; resize: vertical; }
   .card { box-shadow: none; border: 1px solid #ccc; break-inside: avoid; }
   body { background: #fff; }
 }
+
+/* ---------- ترويسة الفاتورة والتحقق منها ---------- */
+.invoice-brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-bottom: var(--space-4);
+  margin-bottom: var(--space-4);
+  border-bottom: 2px solid var(--border);
+}
+.invoice-brand__logo { width: 48px; height: 48px; object-fit: contain; }
+.invoice-brand__name { font-weight: 700; font-size: var(--font-size-lg); color: var(--primary-darker); }
+.invoice-brand__sub { font-size: var(--font-size-sm); color: var(--text-secondary); direction: ltr; }
+
+.invoice-verify {
+  display: flex;
+  align-items: center;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+.invoice-verify__qr { flex-shrink: 0; line-height: 0; }
+.invoice-verify__qr img, .invoice-verify__qr canvas { display: block; }
+.invoice-verify__text { min-width: 0; }
+.invoice-verify__text a { word-break: break-all; }
+
+@media print {
+  .invoice-verify { border-color: #000; background: transparent; }
+}
