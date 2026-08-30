@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>تسجيل الدخول — نظام المحاسبة</title>
+  <link rel="stylesheet" href="css/main.css">
+  <link rel="stylesheet" href="css/components.css">
+  <style>
+    .auth-page {
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: var(--surface);
+      padding: var(--space-4);
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 400px;
+      background: var(--background);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      box-shadow: var(--shadow-md);
+      padding: var(--space-8);
+    }
+    .auth-card__logo {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      justify-content: center;
+      margin-bottom: var(--space-6);
+    }
+    .auth-card__title { text-align: center; font-size: var(--font-size-xl); margin-bottom: var(--space-1); }
+    .auth-card__subtitle { text-align: center; color: var(--text-secondary); font-size: var(--font-size-sm); margin-bottom: var(--space-6); }
+    .auth-card .form-field { margin-bottom: var(--space-4); }
+    .auth-card__footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: var(--space-4);
+      font-size: var(--font-size-sm);
+    }
+    #loginAlert { display: none; margin-bottom: var(--space-4); }
+  </style>
+</head>
+<body>
+  <div class="auth-page">
+    <div class="auth-card">
+      <div class="auth-card__logo">
+        <svg width="40" height="40" viewBox="0 0 40 40" fill="none" aria-hidden="true">
+          <rect width="40" height="40" rx="8" fill="#3E7FAE"/>
+          <path d="M12 28V18m8 10V12m8 16v-7" stroke="#fff" stroke-width="3" stroke-linecap="round"/>
+        </svg>
+        <span class="fw-bold fs-lg" style="color: var(--primary-darker);">نظام المحاسبة</span>
+      </div>
+
+      <h1 class="auth-card__title">تسجيل الدخول</h1>
+      <p class="auth-card__subtitle">أدخل بياناتك للوصول إلى حسابك</p>
+
+      <div id="loginAlert" class="alert" role="alert"></div>
+
+      <form id="loginForm" novalidate>
+        <div class="form-field">
+          <label class="form-field__label" for="email">البريد الإلكتروني <span class="form-field__required">*</span></label>
+          <input class="input" type="email" id="email" name="email" required autocomplete="email" placeholder="name@company.com" style="direction: ltr; text-align: end;">
+          <span class="form-field__error">يرجى إدخال البريد الإلكتروني</span>
+        </div>
+
+        <div class="form-field">
+          <label class="form-field__label" for="password">كلمة المرور <span class="form-field__required">*</span></label>
+          <input class="input" type="password" id="password" name="password" required autocomplete="current-password">
+          <span class="form-field__error">يرجى إدخال كلمة المرور</span>
+        </div>
+
+        <div class="auth-card__footer">
+          <label class="checkbox-field">
+            <input type="checkbox" id="rememberMe" checked>
+            <span>تذكرني</span>
+          </label>
+          <a href="#" id="forgotLink">نسيت كلمة المرور؟</a>
+        </div>
+
+        <button type="submit" class="btn btn--primary btn--block" id="loginBtn">تسجيل الدخول</button>
+      </form>
+    </div>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/supabase.js"></script>
+  <script src="js/utils.js"></script>
+  <script src="js/auth.js"></script>
+</body>
+</html>
