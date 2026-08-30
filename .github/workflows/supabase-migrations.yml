@@ -1,7 +1,11 @@
 name: Supabase Migrations
 
 # يطبّق أي ترحيل جديد في supabase/migrations على المشروع عند الدمج في main،
-# ويتحقق فقط (dry-run) في طلبات الدمج.
+# ويعرض الترحيلات المعلّقة فقط في طلبات الدمج.
+#
+# يحتاج هذه الأسرار في Settings → Secrets and variables → Actions:
+#   SUPABASE_ACCESS_TOKEN · SUPABASE_PROJECT_ID · SUPABASE_DB_PASSWORD
+# وقبل إضافتها يتخطى الـ workflow نفسه بدل أن يفشل.
 on:
   push:
     branches: [main]
@@ -11,6 +15,7 @@ on:
   pull_request:
     paths:
       - 'supabase/migrations/**'
+      - '.github/workflows/supabase-migrations.yml'
   workflow_dispatch:
 
 concurrency:
@@ -25,18 +30,32 @@ jobs:
       SUPABASE_DB_PASSWORD: ${{ secrets.SUPABASE_DB_PASSWORD }}
       SUPABASE_PROJECT_ID: ${{ secrets.SUPABASE_PROJECT_ID }}
     steps:
+      - name: Check credentials
+        id: creds
+        run: |
+          if [ -n "$SUPABASE_ACCESS_TOKEN" ] && [ -n "$SUPABASE_PROJECT_ID" ]; then
+            echo "ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "ready=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::تم تخطي الترحيلات: أضف SUPABASE_ACCESS_TOKEN و SUPABASE_PROJECT_ID و SUPABASE_DB_PASSWORD في أسرار المستودع لتفعيلها."
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.creds.outputs.ready == 'true'
 
       - uses: supabase/setup-cli@v1
+        if: steps.creds.outputs.ready == 'true'
         with:
           version: latest
 
       - name: Link project
+        if: steps.creds.outputs.ready == 'true'
         run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
 
       - name: Show pending migrations
+        if: steps.creds.outputs.ready == 'true'
         run: supabase migration list --linked
 
       - name: Apply migrations
-        if: github.event_name != 'pull_request'
+        if: steps.creds.outputs.ready == 'true' && github.event_name != 'pull_request'
         run: supabase db push --linked
