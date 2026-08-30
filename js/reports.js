@@ -137,7 +137,9 @@
 
         r.accounts.forEach(function (a) {
           var mv = r.movement[a.id] || { debit: 0, credit: 0 };
-          var net = (Number(a.balance) || 0) + mv.debit - mv.credit;
+          /* الرصيد من واقع الحركات وحدها: `accounts.balance` محسوب من
+             نفس البنود، فجمعه مع الحركة يُضاعف المبالغ. */
+          var net = mv.debit - mv.credit;
           var d = net > 0 ? net : 0;
           var c = net < 0 ? -net : 0;
           if (d === 0 && c === 0) return; /* skip zero-balance accounts */
@@ -286,9 +288,8 @@
       var html = '', total = 0;
       accounts.forEach(function (a) {
         var mv = movement[a.id] || { debit: 0, credit: 0 };
-        var bal;
-        if (a.type === 'asset') bal = (Number(a.balance) || 0) + mv.debit - mv.credit;
-        else bal = (Number(a.balance) || 0) + mv.credit - mv.debit;
+        /* من الحركات وحدها — انظر ملاحظة ميزان المراجعة. */
+        var bal = a.type === 'asset' ? mv.debit - mv.credit : mv.credit - mv.debit;
         if (bal === 0) return;
         total += bal;
         html += '<tr><td>' + window.utils.escapeHtml(a.code + ' — ' + a.name) + '</td>' +
@@ -348,6 +349,23 @@
         var totalLiab = currentLiab.total + longLiab.total + unclassifiedLiab.total;
 
         var equityAccounts = groupRows(r.accounts.filter(function (a) { return a.type === 'equity'; }), r.movement);
+
+        /* صافي ربح الفترة يخصّ الملّاك، ويظل ضمن حقوق الملكية حتى
+           يُقفَل في الأرباح المحتجزة — بدونه لا تتوازن الميزانية. */
+        var netIncome = 0;
+        r.accounts.forEach(function (a) {
+          if (a.type !== 'revenue' && a.type !== 'expense') return;
+          var mv = r.movement[a.id] || { debit: 0, credit: 0 };
+          netIncome += a.type === 'revenue' ? (mv.credit - mv.debit) : -(mv.debit - mv.credit);
+        });
+
+        var equityHtml = equityAccounts.html;
+        if (netIncome !== 0) {
+          equityHtml += '<tr><td>صافي ربح الفترة</td>' +
+            '<td class="num' + (netIncome < 0 ? ' amount--negative' : '') + '">' +
+            window.utils.formatAmount(netIncome) + '</td></tr>';
+        }
+        equityAccounts = { html: equityHtml, total: equityAccounts.total + netIncome };
         var totalEquity = equityAccounts.total;
 
         var html = '<div class="table-wrapper"><table class="table">' +

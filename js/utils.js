@@ -109,7 +109,7 @@
       return emptyStateHtml({
         icon: 'settings',
         title: 'لم يتم إعداد الاتصال بقاعدة البيانات',
-        text: 'يرجى ضبط عنوان مشروع Supabase والمفتاح العام في ملف js/supabase.js ليتم عرض البيانات.'
+        text: 'يرجى ضبط عنوان مشروع Supabase والمفتاح العام في ملف js/config.js ليتم عرض البيانات.'
       });
     }
     return errorStateHtml({ retryId: retryId, text: (error && error.message) || undefined });

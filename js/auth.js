@@ -17,7 +17,7 @@
 
     /* If Supabase is not configured yet, inform the user instead of failing silently. */
     if (!window.db.isConfigured()) {
-      showAlert('لم يتم إعداد الاتصال بقاعدة البيانات بعد. يرجى ضبط إعدادات Supabase في ملف js/supabase.js.', 'warning');
+      showAlert('لم يتم إعداد الاتصال بقاعدة البيانات بعد. يرجى ضبط إعدادات Supabase في ملف js/config.js.', 'warning');
     }
 
     /* Already signed in? go to dashboard */

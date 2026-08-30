@@ -19,7 +19,7 @@
     liability: ['خصوم متداولة', 'خصوم طويلة الأجل'],
     equity: ['حقوق ملكية'],
     revenue: ['إيرادات'],
-    expense: ['مصروفات']
+    expense: ['مصروفات', 'تكلفة المبيعات']
   };
 
   var state = { accounts: [], search: '', type: '', page: 1, perPage: 15, editingId: null };
@@ -72,9 +72,9 @@
       '      <div class="modal__body">' +
       '        <div class="form-grid">' +
       '          <div class="form-field">' +
-      '            <label class="form-field__label" for="accCode">رمز الحساب <span class="form-field__required">*</span></label>' +
-      '            <input class="input input--num" id="accCode" required placeholder="مثال: 1101">' +
-      '            <span class="form-field__error">رمز الحساب مطلوب</span>' +
+      '            <label class="form-field__label" for="accCode">رمز الحساب</label>' +
+      '            <input class="input input--num" id="accCode" placeholder="يُنشأ تلقائياً">' +
+      '            <span class="form-field__hint">اتركه فارغاً ليُولَّد تلقائياً حسب النوع والحساب الأب.</span>' +
       '          </div>' +
       '          <div class="form-field">' +
       '            <label class="form-field__label" for="accName">اسم الحساب <span class="form-field__required">*</span></label>' +
@@ -320,13 +320,17 @@
     window.utils.setButtonLoading(btn, true, 'جاري الحفظ...');
 
     var payload = {
-      code: document.getElementById('accCode').value.trim(),
       name: document.getElementById('accName').value.trim(),
       type: document.getElementById('accType').value,
       subtype: document.getElementById('accSubtype').value || null,
       parent_id: document.getElementById('accParent').value || null,
       is_active: document.getElementById('accActive').checked
     };
+
+    /* رمز فارغ = لا تُرسل الحقل: عند الإضافة يولّده المحفّز،
+       وعند التعديل يبقى الرمز الحالي كما هو. */
+    var code = document.getElementById('accCode').value.trim();
+    if (code) payload.code = code;
 
     var op = state.editingId
       ? window.db.updateRow('accounts', state.editingId, payload)
@@ -371,7 +375,11 @@
       if (!ok) return;
       window.db.deleteRow('accounts', a.id).then(function (res) {
         if (res.error) {
-          window.utils.toast('تعذر حذف الحساب', 'error');
+          var msg = String((res.error && res.error.message) || '');
+          window.utils.toast(
+            msg.indexOf('foreign key') !== -1 || msg.indexOf('violates') !== -1
+              ? 'لا يمكن حذف حساب عليه حركات مسجّلة. عطّل الحساب بدلاً من حذفه.'
+              : 'تعذر حذف الحساب', 'error');
           return;
         }
         window.utils.toast('تم حذف الحساب بنجاح', 'success');
