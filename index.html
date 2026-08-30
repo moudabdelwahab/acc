@@ -4,9 +4,21 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>نظام المحاسبة</title>
-  <meta http-equiv="refresh" content="0; url=dashboard.html">
 </head>
 <body>
-  <p><a href="dashboard.html">الانتقال إلى لوحة التحكم</a></p>
+  <p><a id="fallbackLink" href="login.html">الانتقال إلى النظام</a></p>
+
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/supabase.js"></script>
+  <script>
+    /* وجّه المستخدم إلى لوحة التحكم إن كان مسجلاً، وإلا إلى تسجيل الدخول. */
+    window.db.getSession().then(function (res) {
+      var signedIn = !!(res && res.data && res.data.session);
+      window.location.replace(signedIn ? 'dashboard.html' : 'login.html');
+    }).catch(function () {
+      window.location.replace('login.html');
+    });
+  </script>
 </body>
 </html>
