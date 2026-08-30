@@ -62,9 +62,9 @@
       '      <div class="modal__body">' +
       '        <div class="form-grid mb-4">' +
       '          <div class="form-field">' +
-      '            <label class="form-field__label" for="invNumber">رقم الفاتورة <span class="form-field__required">*</span></label>' +
-      '            <input class="input input--num" id="invNumber" required placeholder="INV-0001">' +
-      '            <span class="form-field__error">رقم الفاتورة مطلوب</span>' +
+      '            <label class="form-field__label" for="invNumber">رقم الفاتورة</label>' +
+      '            <input class="input input--num" id="invNumber" placeholder="يُنشأ تلقائياً">' +
+      '            <span class="form-field__hint">اتركه فارغاً ليُرقَّم تلقائياً بالتسلسل.</span>' +
       '          </div>' +
       '          <div class="form-field">' +
       '            <label class="form-field__label" for="invCustomer">العميل <span class="form-field__required">*</span></label>' +
@@ -369,7 +369,6 @@
     var tax = Math.round(sub * rate) / 100;
 
     var payload = {
-      invoice_number: document.getElementById('invNumber').value.trim(),
       customer_id: document.getElementById('invCustomer').value,
       issue_date: document.getElementById('invIssueDate').value,
       due_date: document.getElementById('invDueDate').value || null,
@@ -378,6 +377,11 @@
       total: sub + tax,
       status: status || 'draft'
     };
+
+    /* رقم فارغ = لا تُرسل الحقل: عند الإضافة يرقّمه المحفّز،
+       وعند التعديل يبقى الرقم الحالي كما هو. */
+    var invNumber = document.getElementById('invNumber').value.trim();
+    if (invNumber) payload.invoice_number = invNumber;
 
     var btn = document.getElementById('saveInvoiceBtn');
     window.utils.setButtonLoading(btn, true, 'جاري الحفظ...');

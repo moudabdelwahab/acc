@@ -112,6 +112,8 @@
     /* Apply date range */
     var filtered = rows.filter(function (l) {
       var je = l.journal_entries || {};
+      /* القيود غير المرحّلة لا تدخل في الأرصدة، فلا تُعرض هنا. */
+      if (je.status && je.status !== 'posted') return false;
       if (state.from && je.entry_date < state.from) return false;
       if (state.to && je.entry_date > state.to) return false;
       return true;
@@ -132,6 +134,12 @@
       return;
     }
 
+    var account = state.accounts.filter(function (a) {
+      return String(a.id) === String(state.accountId);
+    })[0] || {};
+    /* الأصول والمصروفات طبيعتها مدينة، وما عداها دائنة. */
+    var debitNature = account.type === 'asset' || account.type === 'expense' || !account.type;
+
     var running = 0;
     var html = '<div class="table-wrapper"><table class="table">' +
       '<thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th>' +
@@ -139,7 +147,8 @@
 
     filtered.forEach(function (l) {
       var je = l.journal_entries || {};
-      running += (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      var delta = (Number(l.debit) || 0) - (Number(l.credit) || 0);
+      running += debitNature ? delta : -delta;
       var cls = running < 0 ? ' amount--negative' : '';
       html += '<tr>' +
         '<td class="num">' + window.utils.formatDate(je.entry_date) + '</td>' +

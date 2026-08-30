@@ -158,15 +158,28 @@
     var box = document.getElementById('activityArea');
 
     window.db.fetchRows('journal_entry_lines', {
-      select: 'debit,credit,created_at',
-      limit: 1
+      select: 'debit,credit,journal_entries!inner(entry_date,status)'
     }).then(function (res) {
       if (res.error) {
         box.innerHTML = window.utils.errorToState(res.error, 'retryActivity');
         bindRetry('retryActivity', loadActivity);
         return;
       }
-      if (!res.data || !res.data.length) {
+
+      /* التجميع حسب شهر القيد المحاسبي لا شهر إدخاله، والقيود
+         غير المرحّلة خارج النشاط. */
+      var byMonth = {};
+      (res.data || []).forEach(function (l) {
+        var je = l.journal_entries || {};
+        if (je.status && je.status !== 'posted') return;
+        var key = (je.entry_date || '').substring(0, 7);
+        if (!key) return;
+        if (!byMonth[key]) byMonth[key] = { debit: 0, credit: 0 };
+        byMonth[key].debit += Number(l.debit) || 0;
+        byMonth[key].credit += Number(l.credit) || 0;
+      });
+
+      if (!Object.keys(byMonth).length) {
         box.innerHTML = window.utils.emptyStateHtml({
           icon: 'chart',
           title: 'لا يوجد نشاط مالي بعد',
@@ -174,43 +187,8 @@
         });
         return;
       }
-      /* Real data exists — render a simple monthly aggregation from real rows. */
-      renderMonthlyActivity(box);
-    }).catch(function () {
-      box.innerHTML = window.utils.errorStateHtml({ retryId: 'retryActivity' });
-      bindRetry('retryActivity', loadActivity);
-    });
-  }
-
-  function renderMonthlyActivity(box) {
-    window.db.fetchRows('journal_entry_lines', {
-      select: 'debit,credit,created_at'
-    }).then(function (res) {
-      if (res.error || !res.data || !res.data.length) {
-        box.innerHTML = window.utils.emptyStateHtml({
-          icon: 'chart',
-          title: 'لا يوجد نشاط مالي بعد',
-          text: 'سيظهر النشاط المالي هنا فور تسجيل الحركات المحاسبية.'
-        });
-        return;
-      }
-
-      /* Aggregate real rows per month (YYYY-MM) */
-      var byMonth = {};
-      res.data.forEach(function (l) {
-        var key = (l.created_at || '').substring(0, 7);
-        if (!key) return;
-        if (!byMonth[key]) byMonth[key] = { debit: 0, credit: 0 };
-        byMonth[key].debit += Number(l.debit) || 0;
-        byMonth[key].credit += Number(l.credit) || 0;
-      });
 
       var months = Object.keys(byMonth).sort();
-      if (!months.length) {
-        box.innerHTML = window.utils.emptyStateHtml({ icon: 'chart', title: 'لا يوجد نشاط مالي بعد' });
-        return;
-      }
-
       var max = 0;
       months.forEach(function (m) {
         max = Math.max(max, byMonth[m].debit, byMonth[m].credit);
@@ -236,6 +214,9 @@
         '<span class="d-flex align-center gap-2"><span style="width:12px;height:12px;background:var(--primary);border-radius:2px;display:inline-block;"></span> دائن</span>' +
         '</div>' +
         '<div class="d-flex align-end gap-3" style="direction:ltr; overflow-x:auto; padding-bottom:4px;">' + bars + '</div>';
+    }).catch(function () {
+      box.innerHTML = window.utils.errorStateHtml({ retryId: 'retryActivity' });
+      bindRetry('retryActivity', loadActivity);
     });
   }
 

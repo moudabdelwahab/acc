@@ -53,9 +53,9 @@
       '      <div class="modal__body">' +
       '        <div class="form-grid mb-4">' +
       '          <div class="form-field">' +
-      '            <label class="form-field__label" for="entryNumber">رقم القيد <span class="form-field__required">*</span></label>' +
-      '            <input class="input input--num" id="entryNumber" required placeholder="JV-0001">' +
-      '            <span class="form-field__error">رقم القيد مطلوب</span>' +
+      '            <label class="form-field__label" for="entryNumber">رقم القيد</label>' +
+      '            <input class="input input--num" id="entryNumber" placeholder="يُنشأ تلقائياً">' +
+      '            <span class="form-field__hint">اتركه فارغاً ليُرقَّم تلقائياً بالتسلسل.</span>' +
       '          </div>' +
       '          <div class="form-field">' +
       '            <label class="form-field__label" for="entryDate">التاريخ <span class="form-field__required">*</span></label>' +
@@ -378,13 +378,17 @@
     window.utils.setButtonLoading(btn, true, 'جاري الحفظ...');
 
     var payload = {
-      entry_number: document.getElementById('entryNumber').value.trim(),
       entry_date: document.getElementById('entryDate').value,
       reference: document.getElementById('entryRef').value.trim() || null,
       description: document.getElementById('entryDesc').value.trim(),
       notes: document.getElementById('entryNotes').value.trim() || null,
       status: 'posted'
     };
+
+    /* رقم فارغ = لا تُرسل الحقل: عند الإضافة يرقّمه المحفّز،
+       وعند التعديل يبقى الرقم الحالي كما هو. */
+    var entryNumber = document.getElementById('entryNumber').value.trim();
+    if (entryNumber) payload.entry_number = entryNumber;
 
     var done = function (ok) {
       window.utils.setButtonLoading(btn, false);
