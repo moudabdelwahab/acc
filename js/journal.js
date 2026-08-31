@@ -251,8 +251,10 @@
         '<td>' + window.utils.statusBadge(en.status || 'draft') + '</td>' +
         '<td><div class="row-actions">' +
         '<button class="row-action-btn" data-act="view" data-id="' + en.id + '" aria-label="عرض">' + window.utils.iconSvg('eye') + '</button>' +
-        '<button class="row-action-btn" data-act="edit" data-id="' + en.id + '" aria-label="تعديل">' + window.utils.iconSvg('edit') + '</button>' +
-        '<button class="row-action-btn row-action-btn--danger" data-act="delete" data-id="' + en.id + '" aria-label="حذف">' + window.utils.iconSvg('trash') + '</button>' +
+        /* القيد المرحّل لا يُعدَّل ولا يُحذف — قاعدة البيانات ترفض الأمرين،
+           فلا يُعرض زر لا يؤدي إلا إلى رسالة رفض. */
+        (en.status === 'posted' ? '' :
+          '<button class="row-action-btn" data-act="post" data-id="' + en.id + '" aria-label="ترحيل">' + window.utils.iconSvg('check') + '</button>') +
         '</div></td></tr>';
     });
 
@@ -270,8 +272,7 @@
         var en = state.entries.find(function (x) { return String(x.id) === String(btn.dataset.id); });
         if (!en) return;
         if (btn.dataset.act === 'view') viewEntry(en);
-        else if (btn.dataset.act === 'edit') openForm(en);
-        else if (btn.dataset.act === 'delete') deleteEntry(en);
+        else if (btn.dataset.act === 'post') confirmPost(en);
       });
     });
   }
@@ -382,7 +383,9 @@
       reference: document.getElementById('entryRef').value.trim() || null,
       description: document.getElementById('entryDesc').value.trim(),
       notes: document.getElementById('entryNotes').value.trim() || null,
-      status: 'posted'
+      /* القيد يُنشأ مسوّدة دائماً. الترحيل لا يتم بإدراج posted مباشرة —
+         قاعدة البيانات ترفضه — بل بنداء fn_post_entry بعد اكتمال البنود. */
+      status: 'draft'
     };
 
     /* رقم فارغ = لا تُرسل الحقل: عند الإضافة يرقّمه المحفّز،
@@ -390,14 +393,17 @@
     var entryNumber = document.getElementById('entryNumber').value.trim();
     if (entryNumber) payload.entry_number = entryNumber;
 
-    var done = function (ok) {
+    /* رسائل قواعد التحقق V01-V07 و V15 تأتي من قاعدة البيانات بالعربية،
+       فتُعرض كما هي بدل رسالة عامة لا تدلّ على سبب الرفض. */
+    var done = function (ok, err) {
       window.utils.setButtonLoading(btn, false);
       if (ok) {
         window.utils.closeModal('entryModal');
-        window.utils.toast('تم حفظ البيانات بنجاح', 'success');
+        window.utils.toast('تم ترحيل القيد بنجاح', 'success');
         loadEntries();
       } else {
-        window.utils.toast('تعذر حفظ البيانات', 'error');
+        window.utils.toast(dbMessage(err) || 'تعذر حفظ القيد', 'error');
+        loadEntries();
       }
     };
 
@@ -408,23 +414,33 @@
       return;
     }
 
-    if (state.editingId) {
-      /* Update header then replace lines */
-      sb.from('journal_entries').update(payload).eq('id', state.editingId).then(function (res) {
-        if (res.error) { done(false); return; }
-        sb.from('journal_entry_lines').delete().eq('entry_id', state.editingId).then(function () {
-          var rows = lines.map(function (l) { l.entry_id = state.editingId; return l; });
-          sb.from('journal_entry_lines').insert(rows).then(function (r2) { done(!r2.error); });
-        });
-      }).catch(function () { done(false); });
-    } else {
-      sb.from('journal_entries').insert(payload).select().then(function (res) {
-        if (res.error || !res.data || !res.data.length) { done(false); return; }
-        var entryId = res.data[0].id;
-        var rows = lines.map(function (l) { l.entry_id = entryId; return l; });
-        sb.from('journal_entry_lines').insert(rows).then(function (r2) { done(!r2.error); });
-      }).catch(function () { done(false); });
-    }
+    /* مسار واحد: مسوّدة، ثم بنودها، ثم الترحيل عبر fn_post_entry.
+       بنود القيد المرحّل لا تُحذف ولا تُستبدل، فلا يوجد مسار تعديل هنا. */
+    sb.from('journal_entries').insert(payload).select().then(function (res) {
+      if (res.error || !res.data || !res.data.length) { done(false, res.error); return; }
+      var entryId = res.data[0].id;
+      var rows = lines.map(function (l) { l.entry_id = entryId; return l; });
+      sb.from('journal_entry_lines').insert(rows).then(function (r2) {
+        if (r2.error) { done(false, r2.error); return; }
+        postEntry(entryId, done);
+      });
+    }).catch(function (err) { done(false, err); });
+  }
+
+  /* المسار المعتمد الوحيد للترحيل: fn_post_entry عبر RPC.
+     تتحقق من التوازن (V01) وفتح الفترة وتاريخ بدء التشغيل (V05)
+     قبل أن تحوّل الحالة، فلا يصير القيد مرحّلاً إلا بعد اجتيازها. */
+  function postEntry(entryId, cb) {
+    var sb = window.db.getClient();
+    if (!sb) { cb(false); return; }
+    sb.rpc('fn_post_entry', { p_entry_id: entryId }).then(function (res) {
+      cb(!res.error, res.error);
+    }).catch(function (err) { cb(false, err); });
+  }
+
+  function dbMessage(err) {
+    if (!err) return '';
+    return String(err.message || err.hint || err.details || '').trim();
   }
 
   function viewEntry(en) {
@@ -462,17 +478,14 @@
     window.utils.openModal('viewEntryModal');
   }
 
-  function deleteEntry(en) {
-    window.utils.confirmDialog('هل أنت متأكد من حذف هذا القيد؟ سيتم حذف جميع بنوده ولا يمكن التراجع.').then(function (ok) {
+  /* ترحيل مسوّدة قائمة عبر المسار المعتمد نفسه. */
+  function confirmPost(en) {
+    window.utils.confirmDialog('ترحيل القيد ' + (en.entry_number || '') + '؟ بعد الترحيل لا يمكن تعديله ولا حذفه، والتصحيح يكون بقيد عكسي.').then(function (ok) {
       if (!ok) return;
-      var sb = window.db.getClient();
-      if (!sb) { window.utils.toast('لم يتم إعداد الاتصال بقاعدة البيانات بعد.', 'error'); return; }
-      sb.from('journal_entry_lines').delete().eq('entry_id', en.id).then(function () {
-        sb.from('journal_entries').delete().eq('id', en.id).then(function (res) {
-          if (res.error) { window.utils.toast('تعذر حذف القيد', 'error'); return; }
-          window.utils.toast('تم حذف القيد بنجاح', 'success');
-          loadEntries();
-        });
+      postEntry(en.id, function (done, err) {
+        if (!done) { window.utils.toast(dbMessage(err) || 'تعذر ترحيل القيد', 'error'); return; }
+        window.utils.toast('تم ترحيل القيد بنجاح', 'success');
+        loadEntries();
       });
     });
   }
