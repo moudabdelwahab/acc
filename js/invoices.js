@@ -8,7 +8,7 @@
   'use strict';
 
   /* نطاق منصة مدعوم — مصدر الشعار ورابط التحقق العام. */
-  var MAD3OOM_ORIGIN = 'https://mad3oom.online';
+  var MAD3OOM_ORIGIN = 'https://mad3oom.com';
 
   var state = { invoices: [], customers: [], search: '', status: '', page: 1, perPage: 12, editingId: null };
 
@@ -435,7 +435,7 @@
       '  <img class="invoice-brand__logo" src="' + MAD3OOM_ORIGIN + '/logo.png" alt="شعار منصة مدعوم">' +
       '  <div>' +
       '    <div class="invoice-brand__name">منصة مدعوم</div>' +
-      '    <div class="invoice-brand__sub">mad3oom.online</div>' +
+      '    <div class="invoice-brand__sub">mad3oom.com</div>' +
       '  </div>' +
       '</div>';
   }
@@ -504,7 +504,7 @@
       '  <div class="invoice-verify__text">' +
       '    <div class="fw-bold">فاتورة صادرة عن منصة مدعوم</div>' +
       '    <p class="text-muted fs-sm">امسح الرمز للتحقق من الفاتورة على ' +
-      '       <span class="num">mad3oom.online</span>.</p>' +
+      '       <span class="num">mad3oom.com</span>.</p>' +
       '    <a class="fs-sm num" href="' + window.utils.escapeHtml(inv.public_url) + '"' +
       '       target="_blank" rel="noopener noreferrer">' +
       window.utils.escapeHtml(inv.public_url) + '</a>' +
