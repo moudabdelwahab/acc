@@ -271,6 +271,9 @@
         '<td><div class="row-actions">' +
         '<button class="row-action-btn" data-act="view" data-id="' + inv.id + '" aria-label="عرض">' + window.utils.iconSvg('eye') + '</button>' +
         '<button class="row-action-btn" data-act="edit" data-id="' + inv.id + '" aria-label="تعديل">' + window.utils.iconSvg('edit') + '</button>' +
+        (inv.status === 'sent' || inv.status === 'overdue'
+          ? '<button class="row-action-btn" data-act="receipt" data-id="' + inv.id + '" aria-label="تسجيل مقبوض" title="تسجيل مقبوض">' + window.utils.iconSvg('check') + '</button>'
+          : '') +
         '<button class="row-action-btn row-action-btn--danger" data-act="delete" data-id="' + inv.id + '" aria-label="حذف">' + window.utils.iconSvg('trash') + '</button>' +
         '</div></td></tr>';
     });
@@ -291,6 +294,14 @@
         if (btn.dataset.act === 'view') viewInvoice(inv);
         else if (btn.dataset.act === 'edit') openForm(inv);
         else if (btn.dataset.act === 'delete') deleteInvoice(inv);
+        else if (btn.dataset.act === 'receipt') {
+          window.receipts.open({
+            customerId: inv.customer_id,
+            customerName: customerName(inv.customer_id),
+            invoiceId: inv.id,
+            onSaved: loadInvoices
+          });
+        }
       });
     });
   }
