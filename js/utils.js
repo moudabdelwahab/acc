@@ -142,7 +142,9 @@
     pending: { cls: 'badge--warning', label: 'قيد الانتظار' },
     approved: { cls: 'badge--success', label: 'معتمد' },
     rejected: { cls: 'badge--neutral', label: 'مرفوض' },
-    received: { cls: 'badge--info', label: 'مستلمة' }
+    received: { cls: 'badge--info', label: 'مستلمة' },
+    sold: { cls: 'badge--neutral', label: 'مباع' },
+    disposed: { cls: 'badge--neutral', label: 'مستبعد' }
   };
 
   function statusBadge(status) {
