@@ -41,6 +41,9 @@ python3 -m http.server 3000
 
 ## 3. قاعدة البيانات
 
+> لقطة كاملة لحالة قاعدة الإنتاج (المخطط، التطابق مع الترحيلات، البيانات المرجعية،
+> والملاحظات المفتوحة) في [`docs/production-db-snapshot.md`](docs/production-db-snapshot.md).
+
 كل مخطط قاعدة البيانات موجود كملفات ترحيل (migrations) داخل `supabase/migrations`:
 
 | الملف | المحتوى |
