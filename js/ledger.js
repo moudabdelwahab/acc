@@ -59,8 +59,8 @@
   });
 
   function loadAccounts() {
-    window.db.fetchRows('accounts', {
-      select: 'id,code,name,type,balance',
+    window.db.fetchAll('accounts', {
+      select: 'id,code,name,type,normal_balance,balance',
       order: { col: 'code', ascending: true }
     }).then(function (res) {
       if (res.error) {
@@ -89,18 +89,35 @@
     }
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('journal_entry_lines', {
-      select: 'id,account_id,debit,credit,description,journal_entries!inner(entry_number,entry_date,reference,status)',
-      filters: [{ col: 'account_id', op: 'eq', val: state.accountId }]
-    }).then(function (res) {
-      if (res.error) {
-        box.innerHTML = window.utils.errorToState(res.error, 'retryLedger');
+    /* البنود المرحّلة للحساب ضمن الفترة، كلها (تُجلب على دفعات من 1000)،
+       والرصيد الافتتاحي = حركة الحساب قبل بداية الفترة. بدونه كان الرصيد
+       المتحرك يبدأ من صفر عند اختيار «من تاريخ». */
+    var filters = [
+      { col: 'account_id', op: 'eq', val: state.accountId },
+      { col: 'journal_entries.status', op: 'eq', val: 'posted' }
+    ];
+    if (state.from) filters.push({ col: 'journal_entries.entry_date', op: 'gte', val: state.from });
+    if (state.to) filters.push({ col: 'journal_entries.entry_date', op: 'lte', val: state.to });
+
+    var linesP = window.db.fetchAll('journal_entry_lines', {
+      select: 'id,account_id,debit,credit,description,journal_entries!inner(entry_number,entry_date,reference,status,created_at)',
+      filters: filters
+    });
+    var openingP = state.from
+      ? window.db.rpc('fn_account_movements', { p_from: null, p_to: dayBefore(state.from) })
+      : Promise.resolve({ data: [] });
+
+    Promise.all([linesP, openingP]).then(function (results) {
+      var res = results[0], op = results[1];
+      var err = res.error || op.error;
+      if (err) {
+        box.innerHTML = window.utils.errorToState(err, 'retryLedger');
         var b = document.getElementById('retryLedger');
         if (b) b.addEventListener('click', loadLedger);
         return;
       }
-
-      renderRows(box, res.data || []);
+      var mv = (op.data || []).filter(function (m) { return String(m.account_id) === String(state.accountId); })[0];
+      renderRows(box, res.data || [], mv ? { debit: Number(mv.debit) || 0, credit: Number(mv.credit) || 0 } : null);
     }).catch(function () {
       box.innerHTML = window.utils.errorStateHtml({ retryId: 'retryLedger' });
       var b = document.getElementById('retryLedger');
@@ -108,60 +125,70 @@
     });
   }
 
-  function renderRows(box, rows) {
-    /* Apply date range */
-    var filtered = rows.filter(function (l) {
-      var je = l.journal_entries || {};
-      /* القيود غير المرحّلة لا تدخل في الأرصدة، فلا تُعرض هنا. */
-      if (je.status && je.status !== 'posted') return false;
-      if (state.from && je.entry_date < state.from) return false;
-      if (state.to && je.entry_date > state.to) return false;
-      return true;
-    });
+  function dayBefore(iso) {
+    var d = new Date(iso + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
 
-    filtered.sort(function (a, b) {
-      var da = (a.journal_entries || {}).entry_date || '';
-      var db = (b.journal_entries || {}).entry_date || '';
-      return da < db ? -1 : da > db ? 1 : 0;
+  function renderRows(box, rows, opening) {
+    rows.sort(function (a, b) {
+      var ja = a.journal_entries || {}, jb = b.journal_entries || {};
+      if (ja.entry_date !== jb.entry_date) return ja.entry_date < jb.entry_date ? -1 : 1;
+      return (ja.created_at || '') < (jb.created_at || '') ? -1 : (ja.created_at || '') > (jb.created_at || '') ? 1 : 0;
     });
-
-    if (!filtered.length) {
-      box.innerHTML = window.utils.emptyStateHtml({
-        icon: 'document',
-        title: 'لا توجد حركات لهذا الحساب',
-        text: 'لم يتم تسجيل أي حركات على هذا الحساب ضمن الفترة المحددة.'
-      });
-      return;
-    }
 
     var account = state.accounts.filter(function (a) {
       return String(a.id) === String(state.accountId);
     })[0] || {};
-    /* الأصول والمصروفات طبيعتها مدينة، وما عداها دائنة. */
-    var debitNature = account.type === 'asset' || account.type === 'expense' || !account.type;
+    /* الطبيعة من normal_balance: مجمع الإهلاك مثلًا أصل طبيعته دائنة. */
+    var debitNature = account.normal_balance
+      ? account.normal_balance === 'debit'
+      : (account.type === 'asset' || account.type === 'expense');
+    var sign = function (d, c) { return debitNature ? d - c : c - d; };
 
-    var running = 0;
+    var running = opening ? sign(opening.debit, opening.credit) : 0;
+
+    if (!rows.length && !running) {
+      box.innerHTML = window.utils.emptyStateHtml({
+        icon: 'document',
+        title: 'لا توجد حركات لهذا الحساب',
+        text: 'لم يتم تسجيل أي حركات مرحّلة على هذا الحساب ضمن الفترة المحددة.'
+      });
+      return;
+    }
+
     var html = '<div class="table-wrapper"><table class="table">' +
       '<thead><tr><th>التاريخ</th><th>المرجع</th><th>البيان</th>' +
       '<th class="num">مدين</th><th class="num">دائن</th><th class="num">الرصيد</th></tr></thead><tbody>';
 
-    filtered.forEach(function (l) {
+    if (opening) {
+      html += '<tr><td class="num">' + window.utils.escapeHtml(state.from) + '</td><td>—</td>' +
+        '<td class="fw-semibold">رصيد أول المدة</td><td class="num">—</td><td class="num">—</td>' +
+        '<td class="num fw-semibold' + (running < 0 ? ' amount--negative' : '') + '">' + window.utils.formatAmount(running) + '</td></tr>';
+    }
+
+    var td = 0, tc = 0;
+    rows.forEach(function (l) {
       var je = l.journal_entries || {};
-      var delta = (Number(l.debit) || 0) - (Number(l.credit) || 0);
-      running += debitNature ? delta : -delta;
+      var d = Number(l.debit) || 0, c = Number(l.credit) || 0;
+      td += d; tc += c;
+      running = Math.round((running + sign(d, c)) * 100) / 100;
       var cls = running < 0 ? ' amount--negative' : '';
       html += '<tr>' +
         '<td class="num">' + window.utils.formatDate(je.entry_date) + '</td>' +
         '<td class="num">' + window.utils.escapeHtml(je.entry_number || je.reference || '—') + '</td>' +
         '<td>' + window.utils.escapeHtml(l.description || '—') + '</td>' +
-        '<td class="num">' + window.utils.formatAmount(l.debit) + '</td>' +
-        '<td class="num">' + window.utils.formatAmount(l.credit) + '</td>' +
+        '<td class="num">' + window.utils.formatAmount(d) + '</td>' +
+        '<td class="num">' + window.utils.formatAmount(c) + '</td>' +
         '<td class="num fw-semibold' + cls + '">' + window.utils.formatAmount(running) + '</td>' +
         '</tr>';
     });
 
     html += '</tbody><tfoot><tr>' +
-      '<td colspan="5">الرصيد الختامي</td>' +
+      '<td colspan="3">الإجمالي والرصيد الختامي</td>' +
+      '<td class="num">' + window.utils.formatAmount(td) + '</td>' +
+      '<td class="num">' + window.utils.formatAmount(tc) + '</td>' +
       '<td class="num">' + window.utils.formatAmount(running) + '</td>' +
       '</tr></tfoot></table></div>';
     box.innerHTML = html;

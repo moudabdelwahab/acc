@@ -166,7 +166,7 @@
     var box = document.getElementById('accountsTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('accounts', {
+    window.db.fetchAll('accounts', {
       select: 'id,code,name,type,subtype,parent_id,balance,is_active',
       order: { col: 'code', ascending: true }
     }).then(function (res) {
@@ -339,11 +339,8 @@
     op.then(function (res) {
       window.utils.setButtonLoading(btn, false);
       if (res.error) {
-        if (window.utils.isNotConfigured(res.error)) {
-          window.utils.toast('لم يتم إعداد الاتصال بقاعدة البيانات بعد.', 'error');
-        } else {
-          window.utils.toast('تعذر حفظ البيانات', 'error');
-        }
+        /* قواعد الدليل (A01..A07) ترجع برسالة عربية تشرح السبب */
+        window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حفظ البيانات'), 'error');
         return;
       }
       window.utils.closeModal('accountModal');
@@ -377,9 +374,9 @@
         if (res.error) {
           var msg = String((res.error && res.error.message) || '');
           window.utils.toast(
-            msg.indexOf('foreign key') !== -1 || msg.indexOf('violates') !== -1
-              ? 'لا يمكن حذف حساب عليه حركات مسجّلة. عطّل الحساب بدلاً من حذفه.'
-              : 'تعذر حذف الحساب', 'error');
+            msg.indexOf('foreign key') !== -1
+              ? 'لا يمكن حذف حساب عليه حركات أو مستخدم في مستندات. عطّل الحساب بدلاً من حذفه.'
+              : window.utils.dbErrorMessage(res.error, 'تعذر حذف الحساب'), 'error');
           return;
         }
         window.utils.toast('تم حذف الحساب بنجاح', 'success');

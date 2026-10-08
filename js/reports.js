@@ -31,45 +31,43 @@
 
   /* ---------- Shared data loader ---------- */
 
-  function loadData(fromDate, toDate) {
-    var accountsP = window.db.fetchRows('accounts', {
-      select: 'id,code,name,type,subtype,balance',
-      order: { col: 'code', ascending: true }
-    });
-    var linesP = window.db.fetchRows('journal_entry_lines', {
-      select: 'account_id,debit,credit,journal_entries!inner(entry_date,status)'
-    });
-    return Promise.all([accountsP, linesP]).then(function (results) {
-      var accRes = results[0], lineRes = results[1];
-      if (accRes.error) return { error: accRes.error };
-      if (lineRes.error) return { error: lineRes.error };
-
-      var accounts = accRes.data || [];
-      var lines = lineRes.data || [];
-
-      /* Movement per account within range */
-      var movement = {};
-      lines.forEach(function (l) {
-        var je = l.journal_entries || {};
-        if (je.status && je.status !== 'posted') return;
-        var d = je.entry_date || '';
-        if (fromDate && d < fromDate) return;
-        if (toDate && d > toDate) return;
-        if (!movement[l.account_id]) movement[l.account_id] = { debit: 0, credit: 0 };
-        movement[l.account_id].debit += Number(l.debit) || 0;
-        movement[l.account_id].credit += Number(l.credit) || 0;
+  /* الحركة تُجمَّع في قاعدة البيانات (fn_account_movements) من القيود المرحّلة
+     وحدها: جلب البنود إلى المتصفح كان يتوقف بصمت عند 1000 بند فتنقص التقارير. */
+  function loadMovements(fromDate, toDate) {
+    return window.db.rpc('fn_account_movements', { p_from: fromDate || null, p_to: toDate || null })
+      .then(function (res) {
+        if (res.error) return { error: res.error };
+        var movement = {};
+        (res.data || []).forEach(function (m) {
+          movement[m.account_id] = { debit: Number(m.debit) || 0, credit: Number(m.credit) || 0 };
+        });
+        return { movement: movement };
       });
+  }
 
-      return { accounts: accounts, movement: movement };
+  function loadAccounts() {
+    return window.db.fetchAll('accounts', {
+      select: 'id,code,name,type,subtype,normal_balance',
+      order: { col: 'code', ascending: true }
     });
   }
 
-  function toolbarHtml() {
+  function loadData(fromDate, toDate) {
+    return Promise.all([loadAccounts(), loadMovements(fromDate, toDate)]).then(function (results) {
+      var accRes = results[0], mvRes = results[1];
+      if (accRes.error) return { error: accRes.error };
+      if (mvRes.error) return { error: mvRes.error };
+      return { accounts: accRes.data || [], movement: mvRes.movement };
+    });
+  }
+
+  function toolbarHtml(asOfOnly) {
     return '<div class="card mb-4"><div class="card__body">' +
       '<div class="toolbar" style="margin-bottom:0;">' +
+      (asOfOnly ? '' :
       '  <label class="d-flex align-center gap-2 fs-sm text-secondary">من ' +
-      '    <input class="input" type="date" id="fromDate" style="width:auto;"></label>' +
-      '  <label class="d-flex align-center gap-2 fs-sm text-secondary">إلى ' +
+      '    <input class="input" type="date" id="fromDate" style="width:auto;"></label>') +
+      '  <label class="d-flex align-center gap-2 fs-sm text-secondary">' + (asOfOnly ? 'حتى تاريخ' : 'إلى') + ' ' +
       '    <input class="input" type="date" id="toDate" style="width:auto;"></label>' +
       '  <button class="btn btn--primary" id="applyBtn">عرض التقرير</button>' +
       '  <div class="toolbar__spacer"></div>' +
@@ -91,7 +89,8 @@
   function bindToolbar(run) {
     document.getElementById('printBtn').addEventListener('click', function () { window.print(); });
     document.getElementById('applyBtn').addEventListener('click', function () {
-      run(document.getElementById('fromDate').value, document.getElementById('toDate').value);
+      var fromEl = document.getElementById('fromDate');
+      run(fromEl ? fromEl.value : '', document.getElementById('toDate').value);
     });
   }
 
@@ -106,7 +105,7 @@
      ============================================================ */
   function renderTrialBalancePage(main) {
     main.innerHTML =
-      pageHeader('ميزان المراجعة', 'أرصدة الحسابات المدينة والدائنة', 'ميزان المراجعة') +
+      pageHeader('ميزان المراجعة', 'حركة الفترة والأرصدة الختامية للحسابات', 'ميزان المراجعة') +
       toolbarHtml() +
       '<div class="card"><div class="card__body card__body--flush" id="reportArea">' +
       window.utils.loadingHtml() + '</div></div>' +
@@ -115,67 +114,64 @@
     bindToolbar(run);
     run('', '');
 
+    /* حركة الفترة من «من» إلى «إلى»، والرصيد الختامي تراكمي حتى «إلى»:
+       الرصيد يشمل كل ما قبل الفترة، فلا يُحسب من حركتها وحدها. */
     function run(from, to) {
       var box = document.getElementById('reportArea');
       var notice = document.getElementById('balanceNotice');
       box.innerHTML = window.utils.loadingHtml();
       notice.innerHTML = '';
 
-      loadData(from, to).then(function (r) {
-        if (r.error) { showError(box, r.error, 'retryReport', function () { run(from, to); }); return; }
-        if (!r.accounts.length) {
-          box.innerHTML = window.utils.emptyStateHtml({
-            icon: 'document',
-            title: 'لا توجد بيانات لعرضها',
-            text: 'لم يتم إنشاء حسابات أو تسجيل قيود بعد. يظهر ميزان المراجعة بعد تسجيل الحركات المحاسبية.'
-          });
-          return;
-        }
+      Promise.all([loadAccounts(), loadMovements(from, to), loadMovements(null, to)]).then(function (res) {
+        var err = res[0].error || res[1].error || res[2].error;
+        if (err) { showError(box, err, 'retryReport', function () { run(from, to); }); return; }
+        var accounts = res[0].data || [];
+        var period = res[1].movement, closing = res[2].movement;
 
-        var totalD = 0, totalC = 0;
+        var t = { pd: 0, pc: 0, bd: 0, bc: 0 };
         var rowsHtml = '';
-
-        r.accounts.forEach(function (a) {
-          var mv = r.movement[a.id] || { debit: 0, credit: 0 };
-          /* الرصيد من واقع الحركات وحدها: `accounts.balance` محسوب من
-             نفس البنود، فجمعه مع الحركة يُضاعف المبالغ. */
-          var net = mv.debit - mv.credit;
-          var d = net > 0 ? net : 0;
-          var c = net < 0 ? -net : 0;
-          if (d === 0 && c === 0) return; /* skip zero-balance accounts */
-          totalD += d; totalC += c;
+        accounts.forEach(function (a) {
+          var mv = period[a.id] || { debit: 0, credit: 0 };
+          var cl = closing[a.id] || { debit: 0, credit: 0 };
+          var net = Math.round((cl.debit - cl.credit) * 100) / 100;
+          var bd = net > 0 ? net : 0, bc = net < 0 ? -net : 0;
+          if (!mv.debit && !mv.credit && !bd && !bc) return;
+          t.pd += mv.debit; t.pc += mv.credit; t.bd += bd; t.bc += bc;
+          var cell = function (v) { return '<td class="num">' + (v ? window.utils.formatAmount(v) : '—') + '</td>'; };
           rowsHtml += '<tr>' +
             '<td class="num">' + window.utils.escapeHtml(a.code || '—') + '</td>' +
             '<td>' + window.utils.escapeHtml(a.name || '—') + '</td>' +
-            '<td class="num">' + (d ? window.utils.formatAmount(d) : '—') + '</td>' +
-            '<td class="num">' + (c ? window.utils.formatAmount(c) : '—') + '</td>' +
-            '</tr>';
+            cell(mv.debit) + cell(mv.credit) + cell(bd) + cell(bc) + '</tr>';
         });
 
         if (!rowsHtml) {
           box.innerHTML = window.utils.emptyStateHtml({
             icon: 'document',
             title: 'لا توجد أرصدة لعرضها',
-            text: 'جميع الحسابات برصيد صفر ضمن الفترة المحددة.'
+            text: 'لا توجد قيود مرحّلة حتى التاريخ المحدد.'
           });
           return;
         }
 
         box.innerHTML = '<div class="table-wrapper"><table class="table">' +
-          '<thead><tr><th>رمز الحساب</th><th>اسم الحساب</th>' +
-          '<th class="num">مدين</th><th class="num">دائن</th></tr></thead>' +
+          '<thead><tr><th rowspan="2">رمز الحساب</th><th rowspan="2">اسم الحساب</th>' +
+          '<th class="num" colspan="2">حركة الفترة</th><th class="num" colspan="2">الرصيد الختامي</th></tr>' +
+          '<tr><th class="num">مدين</th><th class="num">دائن</th><th class="num">مدين</th><th class="num">دائن</th></tr></thead>' +
           '<tbody>' + rowsHtml + '</tbody>' +
           '<tfoot><tr><td colspan="2">الإجمالي</td>' +
-          '<td class="num">' + window.utils.formatAmount(totalD) + '</td>' +
-          '<td class="num">' + window.utils.formatAmount(totalC) + '</td></tr></tfoot>' +
+          '<td class="num">' + window.utils.formatAmount(t.pd) + '</td>' +
+          '<td class="num">' + window.utils.formatAmount(t.pc) + '</td>' +
+          '<td class="num">' + window.utils.formatAmount(t.bd) + '</td>' +
+          '<td class="num">' + window.utils.formatAmount(t.bc) + '</td></tr></tfoot>' +
           '</table></div>';
 
-        var diff = Math.round((totalD - totalC) * 100) / 100;
-        if (diff === 0) {
+        var diff = Math.round((t.bd - t.bc) * 100) / 100;
+        var pdiff = Math.round((t.pd - t.pc) * 100) / 100;
+        if (diff === 0 && pdiff === 0) {
           notice.innerHTML = '<div class="alert alert--success">الميزان متوازن: إجمالي المدين يساوي إجمالي الدائن.</div>';
         } else {
           notice.innerHTML = '<div class="alert alert--danger">' +
-            'الميزان غير متوازن — الفرق: <span class="num fw-bold">' + window.utils.formatAmount(Math.abs(diff)) + '</span>. يرجى مراجعة القيود.</div>';
+            'الميزان غير متوازن — الفرق: <span class="num fw-bold">' + window.utils.formatAmount(Math.abs(diff || pdiff)) + '</span>. يرجى مراجعة القيود.</div>';
         }
       }).catch(function () {
         showError(box, { message: '' }, 'retryReport', function () { run(from, to); });
@@ -275,8 +271,8 @@
      ============================================================ */
   function renderBalanceSheetPage(main) {
     main.innerHTML =
-      pageHeader('الميزانية العمومية', 'الأصول والخصوم وحقوق الملكية', 'الميزانية العمومية') +
-      toolbarHtml() +
+      pageHeader('الميزانية العمومية', 'الأصول والخصوم وحقوق الملكية في تاريخ محدد', 'الميزانية العمومية') +
+      toolbarHtml(true) +
       '<div class="card"><div class="card__body" id="reportArea">' +
       window.utils.loadingHtml() + '</div></div>' +
       '<div id="equationArea" class="mt-4"></div>';
@@ -315,7 +311,9 @@
       box.innerHTML = window.utils.loadingHtml();
       eq.innerHTML = '';
 
-      loadData(from, to).then(function (r) {
+      /* الميزانية صورة في لحظة: كل الحركات حتى التاريخ المحدد، لا حركة فترة.
+         حسابها من فترة وحدها كان يُسقط أرصدة ما قبلها. */
+      loadData(null, to).then(function (r) {
         if (r.error) { showError(box, r.error, 'retryReport', function () { run(from, to); }); return; }
         if (!r.accounts.length) {
           box.innerHTML = window.utils.emptyStateHtml({

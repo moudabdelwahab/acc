@@ -116,7 +116,7 @@
     var box = document.getElementById('customersTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('customers', {
+    window.db.fetchAll('customers', {
       select: 'id,name,phone,email,tax_number,address,balance,is_active',
       order: { col: 'name', ascending: true }
     }).then(function (res) {
@@ -268,18 +268,26 @@
     });
   }
 
+  /** يعيد فتح ملف العميل بأحدث بياناته (الرصيد يتغيّر بعد كل مقبوض). */
+  function reloadCustomer(id) {
+    window.db.fetchRows('customers', { filters: [{ col: 'id', op: 'eq', val: id }] }).then(function (res) {
+      var fresh = res && res.data && res.data[0];
+      if (fresh) viewProfile(fresh);
+    });
+  }
+
   function viewProfile(c) {
     var body = document.getElementById('profileBody');
     window.utils.openModal('profileModal');
     body.innerHTML = window.utils.loadingHtml();
 
-    var invoicesP = window.db.fetchRows('invoices', {
+    var invoicesP = window.db.fetchAll('invoices', {
       select: 'id,invoice_number,issue_date,due_date,total,status',
       filters: [{ col: 'customer_id', op: 'eq', val: c.id }],
       order: { col: 'issue_date', ascending: false }
     });
-    var paymentsP = window.db.fetchRows('payments', {
-      select: 'id,payment_date,amount,method,reference',
+    var paymentsP = window.db.fetchAll('payments', {
+      select: 'id,payment_date,amount,method,reference,invoices(invoice_number)',
       filters: [{ col: 'party_id', op: 'eq', val: c.id }, { col: 'party_type', op: 'eq', val: 'customer' }],
       order: { col: 'payment_date', ascending: false }
     });
@@ -319,22 +327,34 @@
         html += '<div class="alert alert--info mb-6">لا توجد فواتير مسجلة لهذا العميل.</div>';
       }
 
-      html += '<h3 class="fs-lg mb-3">سجل المدفوعات</h3>';
+      html += '<div class="flex align-center justify-between gap-2 mb-3"><h3 class="fs-lg">سجل المقبوضات</h3>' +
+        '<button class="btn btn--primary btn--sm" id="addReceiptBtn">' + window.utils.iconSvg('plus') + ' تسجيل مقبوض</button></div>';
       if (payments.length) {
         html += '<div class="table-wrapper"><table class="table table--compact">' +
-          '<thead><tr><th>التاريخ</th><th class="num">المبلغ</th><th>طريقة الدفع</th><th>المرجع</th></tr></thead><tbody>';
+          '<thead><tr><th>التاريخ</th><th class="num">المبلغ</th><th>طريقة الدفع</th><th>الفاتورة</th><th>المرجع</th><th></th></tr></thead><tbody>';
         payments.forEach(function (p) {
           html += '<tr><td class="num">' + window.utils.formatDate(p.payment_date) + '</td>' +
             '<td class="num">' + window.utils.formatAmount(p.amount) + '</td>' +
-            '<td>' + window.utils.escapeHtml(p.method || '—') + '</td>' +
-            '<td class="num">' + window.utils.escapeHtml(p.reference || '—') + '</td></tr>';
+            '<td>' + window.utils.escapeHtml(window.receipts.METHODS[p.method] || p.method || '—') + '</td>' +
+            '<td class="num">' + window.utils.escapeHtml((p.invoices && p.invoices.invoice_number) || '—') + '</td>' +
+            '<td class="num">' + window.utils.escapeHtml(p.reference || '—') + '</td>' +
+            '<td><button class="row-action-btn row-action-btn--danger" data-del-receipt="' + p.id + '" aria-label="حذف المقبوض">' + window.utils.iconSvg('trash') + '</button></td></tr>';
         });
         html += '</tbody></table></div>';
       } else {
-        html += '<div class="alert alert--info">لا توجد مدفوعات مسجلة لهذا العميل.</div>';
+        html += '<div class="alert alert--info">لا توجد مقبوضات مسجلة لهذا العميل.</div>';
       }
 
       body.innerHTML = html;
+
+      /* بعد أي مقبوض يتغيّر رصيد العميل وحالة فاتورته: يُعاد تحميل الملف والقائمة */
+      var refresh = function () { reloadCustomer(c.id); loadCustomers(); };
+      document.getElementById('addReceiptBtn').addEventListener('click', function () {
+        window.receipts.open({ customerId: c.id, customerName: c.name, onSaved: refresh });
+      });
+      body.querySelectorAll('[data-del-receipt]').forEach(function (btn) {
+        btn.addEventListener('click', function () { window.receipts.remove(btn.dataset.delReceipt, refresh); });
+      });
     });
   }
 
@@ -342,7 +362,7 @@
     window.utils.confirmDialog('هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع عن هذه العملية.').then(function (ok) {
       if (!ok) return;
       window.db.deleteRow('customers', c.id).then(function (res) {
-        if (res.error) { window.utils.toast('تعذر حذف العميل', 'error'); return; }
+        if (res.error) { window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حذف العميل — قد تكون عليه فواتير مسجّلة'), 'error'); return; }
         window.utils.toast('تم حذف العميل بنجاح', 'success');
         loadCustomers();
       }).catch(function () { window.utils.toast('تعذر حذف العميل', 'error'); });

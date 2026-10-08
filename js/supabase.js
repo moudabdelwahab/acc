@@ -61,6 +61,37 @@
     return q;
   }
 
+  /**
+   * Fetch ALL matching rows, 1000 at a time. Supabase caps every response at
+   * 1000 rows (max_rows) and truncates silently, so any list or computation
+   * that can grow past that must page. Pages are ordered by id as a
+   * tie-breaker so no row is skipped or repeated between pages.
+   */
+  function fetchAll(table, options) {
+    var PAGE = 1000;
+    var all = [];
+    function page(from) {
+      var opts = Object.assign({}, options || {}, { from: from, to: from + PAGE - 1 });
+      var q = fetchRows(table, opts);
+      if (q && typeof q.order === 'function') q = q.order('id', { ascending: true });
+      return q.then(function (res) {
+        if (res.error) return { data: null, error: res.error };
+        var rows = res.data || [];
+        all = all.concat(rows);
+        if (rows.length < PAGE) return { data: all, error: null };
+        return page(from + PAGE);
+      });
+    }
+    return page(0);
+  }
+
+  /** Call a database function (RPC). */
+  function rpc(name, args) {
+    var sb = getClient();
+    if (!sb) return Promise.resolve({ data: null, error: { message: 'SUPABASE_NOT_CONFIGURED' } });
+    return sb.rpc(name, args || {});
+  }
+
   function insertRow(table, payload) {
     var sb = getClient();
     if (!sb) return Promise.resolve({ data: null, error: { message: 'SUPABASE_NOT_CONFIGURED' } });
@@ -109,6 +140,8 @@
     isConfigured: isConfigured,
     getClient: getClient,
     fetchRows: fetchRows,
+    fetchAll: fetchAll,
+    rpc: rpc,
     insertRow: insertRow,
     updateRow: updateRow,
     deleteRow: deleteRow,
