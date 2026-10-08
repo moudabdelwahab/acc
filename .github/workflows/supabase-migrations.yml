@@ -40,7 +40,7 @@ jobs:
             echo "::notice::تم تخطي الترحيلات: أضف SUPABASE_ACCESS_TOKEN و SUPABASE_PROJECT_ID و SUPABASE_DB_PASSWORD في أسرار المستودع لتفعيلها."
           fi
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         if: steps.creds.outputs.ready == 'true'
 
       - uses: supabase/setup-cli@v1
