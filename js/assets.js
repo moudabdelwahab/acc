@@ -138,7 +138,7 @@
     var box = document.getElementById('assetsTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('fixed_assets', {
+    window.db.fetchAll('fixed_assets', {
       select: 'id,name,code,purchase_date,purchase_cost,useful_life_years,depreciation_method,accumulated_depreciation,status',
       order: { col: 'code', ascending: true }
     }).then(function (res) {

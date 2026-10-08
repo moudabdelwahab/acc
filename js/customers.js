@@ -116,7 +116,7 @@
     var box = document.getElementById('customersTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('customers', {
+    window.db.fetchAll('customers', {
       select: 'id,name,phone,email,tax_number,address,balance,is_active',
       order: { col: 'name', ascending: true }
     }).then(function (res) {
@@ -281,12 +281,12 @@
     window.utils.openModal('profileModal');
     body.innerHTML = window.utils.loadingHtml();
 
-    var invoicesP = window.db.fetchRows('invoices', {
+    var invoicesP = window.db.fetchAll('invoices', {
       select: 'id,invoice_number,issue_date,due_date,total,status',
       filters: [{ col: 'customer_id', op: 'eq', val: c.id }],
       order: { col: 'issue_date', ascending: false }
     });
-    var paymentsP = window.db.fetchRows('payments', {
+    var paymentsP = window.db.fetchAll('payments', {
       select: 'id,payment_date,amount,method,reference,invoices(invoice_number)',
       filters: [{ col: 'party_id', op: 'eq', val: c.id }, { col: 'party_type', op: 'eq', val: 'customer' }],
       order: { col: 'payment_date', ascending: false }
@@ -362,7 +362,7 @@
     window.utils.confirmDialog('هل أنت متأكد من حذف هذا العميل؟ لا يمكن التراجع عن هذه العملية.').then(function (ok) {
       if (!ok) return;
       window.db.deleteRow('customers', c.id).then(function (res) {
-        if (res.error) { window.utils.toast('تعذر حذف العميل', 'error'); return; }
+        if (res.error) { window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حذف العميل — قد تكون عليه فواتير مسجّلة'), 'error'); return; }
         window.utils.toast('تم حذف العميل بنجاح', 'success');
         loadCustomers();
       }).catch(function () { window.utils.toast('تعذر حذف العميل', 'error'); });

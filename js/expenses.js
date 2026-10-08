@@ -128,9 +128,11 @@
 
   /* Expense categories = expense-type accounts from the chart */
   function loadExpenseAccounts() {
-    return window.db.fetchRows('accounts', {
+    return window.db.fetchAll('accounts', {
       select: 'id,code,name',
-      filters: [{ col: 'type', op: 'eq', val: 'expense' }, { col: 'is_active', op: 'eq', val: true }],
+      /* الحسابات الفرعية وحدها: الحساب الرئيسي (5000) لا يُرحَّل إليه (V03) */
+      filters: [{ col: 'type', op: 'eq', val: 'expense' }, { col: 'is_active', op: 'eq', val: true },
+                { col: 'is_postable', op: 'eq', val: true }],
       order: { col: 'code', ascending: true }
     }).then(function (res) {
       state.accounts = (res && res.data) || [];
@@ -151,7 +153,7 @@
     var box = document.getElementById('expensesTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('expenses', {
+    window.db.fetchAll('expenses', {
       select: 'id,expense_date,category_id,amount,payment_method,description,receipt_url,status',
       order: { col: 'expense_date', ascending: false }
     }).then(function (res) {
@@ -294,13 +296,11 @@
     op.then(function (res) {
       window.utils.setButtonLoading(btn, false);
       if (res.error) {
-        window.utils.toast(window.utils.isNotConfigured(res.error)
-          ? 'لم يتم إعداد الاتصال بقاعدة البيانات بعد.'
-          : 'تعذر حفظ البيانات', 'error');
+        window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حفظ البيانات'), 'error');
         return;
       }
       window.utils.closeModal('expenseModal');
-      window.utils.toast('تم حفظ البيانات بنجاح', 'success');
+      window.utils.toast('تم حفظ المصروف وترحيل قيده', 'success');
       loadExpenses();
     }).catch(function () {
       window.utils.setButtonLoading(btn, false);
@@ -309,10 +309,10 @@
   }
 
   function deleteExpense(ex) {
-    window.utils.confirmDialog('هل أنت متأكد من حذف هذا المصروف؟ لا يمكن التراجع عن هذه العملية.').then(function (ok) {
+    window.utils.confirmDialog('هل أنت متأكد من حذف هذا المصروف؟ سيُعكس قيده في الدفاتر.').then(function (ok) {
       if (!ok) return;
       window.db.deleteRow('expenses', ex.id).then(function (res) {
-        if (res.error) { window.utils.toast('تعذر حذف المصروف', 'error'); return; }
+        if (res.error) { window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حذف المصروف'), 'error'); return; }
         window.utils.toast('تم حذف المصروف بنجاح', 'success');
         loadExpenses();
       }).catch(function () { window.utils.toast('تعذر حذف المصروف', 'error'); });

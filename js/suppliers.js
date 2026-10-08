@@ -116,7 +116,7 @@
     var box = document.getElementById('suppliersTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('suppliers', {
+    window.db.fetchAll('suppliers', {
       select: 'id,name,phone,email,tax_number,address,balance,is_active',
       order: { col: 'name', ascending: true }
     }).then(function (res) {
@@ -268,18 +268,26 @@
     });
   }
 
+  /** يعيد فتح ملف المورد بأحدث بياناته (الرصيد يتغيّر بعد كل مستند). */
+  function reloadSupplier(id) {
+    window.db.fetchRows('suppliers', { filters: [{ col: 'id', op: 'eq', val: id }] }).then(function (res) {
+      var fresh = res && res.data && res.data[0];
+      if (fresh) viewProfile(fresh);
+    });
+  }
+
   function viewProfile(s) {
     var body = document.getElementById('profileBody');
     window.utils.openModal('profileModal');
     body.innerHTML = window.utils.loadingHtml();
 
-    var purchasesP = window.db.fetchRows('purchases', {
-      select: 'id,purchase_number,purchase_date,total,status',
+    var purchasesP = window.db.fetchAll('purchases', {
+      select: 'id,purchase_number,purchase_date,due_date,description,account_id,subtotal,tax_amount,total,status',
       filters: [{ col: 'supplier_id', op: 'eq', val: s.id }],
       order: { col: 'purchase_date', ascending: false }
     });
-    var paymentsP = window.db.fetchRows('payments', {
-      select: 'id,payment_date,amount,method,reference',
+    var paymentsP = window.db.fetchAll('payments', {
+      select: 'id,payment_date,amount,method,reference,purchases(purchase_number)',
       filters: [{ col: 'party_id', op: 'eq', val: s.id }, { col: 'party_type', op: 'eq', val: 'supplier' }],
       order: { col: 'payment_date', ascending: false }
     });
@@ -303,30 +311,41 @@
         '<dt>الرصيد المستحق</dt><dd class="num fw-bold">' + window.utils.formatAmount(s.balance) + '</dd>' +
         '</dl>';
 
-      html += '<h3 class="fs-lg mb-3">سجل المشتريات</h3>';
+      html += '<div class="flex align-center justify-between gap-2 mb-3"><h3 class="fs-lg">فواتير المشتريات</h3>' +
+        '<button class="btn btn--primary btn--sm" id="addPurchaseBtn">' + window.utils.iconSvg('plus') + ' فاتورة مشتريات</button></div>';
       if (purchases.length) {
         html += '<div class="table-wrapper mb-6"><table class="table table--compact">' +
-          '<thead><tr><th>رقم الشراء</th><th>التاريخ</th><th class="num">الإجمالي</th><th>الحالة</th></tr></thead><tbody>';
+          '<thead><tr><th>رقم الشراء</th><th>التاريخ</th><th>البيان</th><th class="num">الإجمالي</th><th>الحالة</th><th></th></tr></thead><tbody>';
         purchases.forEach(function (p) {
           html += '<tr><td class="num">' + window.utils.escapeHtml(p.purchase_number || '—') + '</td>' +
             '<td class="num">' + window.utils.formatDate(p.purchase_date) + '</td>' +
+            '<td>' + window.utils.escapeHtml(p.description || '—') + '</td>' +
             '<td class="num">' + window.utils.formatAmount(p.total) + '</td>' +
-            '<td>' + window.utils.statusBadge(p.status) + '</td></tr>';
+            '<td>' + window.utils.statusBadge(p.status) + '</td>' +
+            '<td><div class="row-actions">' +
+            (p.status === 'received'
+              ? '<button class="row-action-btn" data-pay-purchase="' + p.id + '" aria-label="سداد" title="سداد">' + window.utils.iconSvg('check') + '</button>' : '') +
+            '<button class="row-action-btn" data-edit-purchase="' + p.id + '" aria-label="تعديل">' + window.utils.iconSvg('edit') + '</button>' +
+            '<button class="row-action-btn row-action-btn--danger" data-del-purchase="' + p.id + '" aria-label="حذف">' + window.utils.iconSvg('trash') + '</button>' +
+            '</div></td></tr>';
         });
         html += '</tbody></table></div>';
       } else {
         html += '<div class="alert alert--info mb-6">لا توجد مشتريات مسجلة لهذا المورد.</div>';
       }
 
-      html += '<h3 class="fs-lg mb-3">سجل المدفوعات</h3>';
+      html += '<div class="flex align-center justify-between gap-2 mb-3"><h3 class="fs-lg">سجل المدفوعات</h3>' +
+        '<button class="btn btn--primary btn--sm" id="addSupplierPaymentBtn">' + window.utils.iconSvg('plus') + ' سداد للمورد</button></div>';
       if (payments.length) {
         html += '<div class="table-wrapper"><table class="table table--compact">' +
-          '<thead><tr><th>التاريخ</th><th class="num">المبلغ</th><th>طريقة الدفع</th><th>المرجع</th></tr></thead><tbody>';
+          '<thead><tr><th>التاريخ</th><th class="num">المبلغ</th><th>طريقة الدفع</th><th>فاتورة المشتريات</th><th>المرجع</th><th></th></tr></thead><tbody>';
         payments.forEach(function (p) {
           html += '<tr><td class="num">' + window.utils.formatDate(p.payment_date) + '</td>' +
             '<td class="num">' + window.utils.formatAmount(p.amount) + '</td>' +
-            '<td>' + window.utils.escapeHtml(p.method || '—') + '</td>' +
-            '<td class="num">' + window.utils.escapeHtml(p.reference || '—') + '</td></tr>';
+            '<td>' + window.utils.escapeHtml(window.receipts.METHODS[p.method] || p.method || '—') + '</td>' +
+            '<td class="num">' + window.utils.escapeHtml((p.purchases && p.purchases.purchase_number) || '—') + '</td>' +
+            '<td class="num">' + window.utils.escapeHtml(p.reference || '—') + '</td>' +
+            '<td><button class="row-action-btn row-action-btn--danger" data-del-payment="' + p.id + '" aria-label="حذف الدفع">' + window.utils.iconSvg('trash') + '</button></td></tr>';
         });
         html += '</tbody></table></div>';
       } else {
@@ -334,6 +353,32 @@
       }
 
       body.innerHTML = html;
+
+      /* بعد أي مستند يتغيّر رصيد المورد وحالة فواتيره: يُعاد تحميل الملف والقائمة */
+      var refresh = function () { reloadSupplier(s.id); loadSuppliers(); };
+      var byId = function (id) { return purchases.filter(function (p) { return String(p.id) === String(id); })[0]; };
+      document.getElementById('addPurchaseBtn').addEventListener('click', function () {
+        window.purchases.open({ supplierId: s.id, supplierName: s.name, onSaved: refresh });
+      });
+      document.getElementById('addSupplierPaymentBtn').addEventListener('click', function () {
+        window.receipts.open({ partyType: 'supplier', partyId: s.id, partyName: s.name, onSaved: refresh });
+      });
+      body.querySelectorAll('[data-edit-purchase]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          window.purchases.open({ supplierId: s.id, supplierName: s.name, purchase: byId(btn.dataset.editPurchase), onSaved: refresh });
+        });
+      });
+      body.querySelectorAll('[data-del-purchase]').forEach(function (btn) {
+        btn.addEventListener('click', function () { window.purchases.remove(byId(btn.dataset.delPurchase), refresh); });
+      });
+      body.querySelectorAll('[data-pay-purchase]').forEach(function (btn) {
+        btn.addEventListener('click', function () {
+          window.receipts.open({ partyType: 'supplier', partyId: s.id, partyName: s.name, docId: btn.dataset.payPurchase, onSaved: refresh });
+        });
+      });
+      body.querySelectorAll('[data-del-payment]').forEach(function (btn) {
+        btn.addEventListener('click', function () { window.receipts.remove(btn.dataset.delPayment, refresh, 'supplier'); });
+      });
     });
   }
 
@@ -341,7 +386,7 @@
     window.utils.confirmDialog('هل أنت متأكد من حذف هذا المورد؟ لا يمكن التراجع عن هذه العملية.').then(function (ok) {
       if (!ok) return;
       window.db.deleteRow('suppliers', s.id).then(function (res) {
-        if (res.error) { window.utils.toast('تعذر حذف المورد', 'error'); return; }
+        if (res.error) { window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حذف المورد — قد تكون عليه مشتريات مسجّلة'), 'error'); return; }
         window.utils.toast('تم حذف المورد بنجاح', 'success');
         loadSuppliers();
       }).catch(function () { window.utils.toast('تعذر حذف المورد', 'error'); });

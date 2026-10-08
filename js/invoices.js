@@ -41,7 +41,6 @@
       '    <option value="draft">مسودة</option>' +
       '    <option value="sent">مُرسلة</option>' +
       '    <option value="paid">مدفوعة</option>' +
-      '    <option value="partially_paid">مدفوعة جزئياً</option>' +
       '    <option value="overdue">متأخرة</option>' +
       '    <option value="cancelled">ملغاة</option>' +
       '  </select>' +
@@ -174,7 +173,7 @@
   /* ---------- Data ---------- */
 
   function loadCustomers() {
-    return window.db.fetchRows('customers', {
+    return window.db.fetchAll('customers', {
       select: 'id,name',
       filters: [{ col: 'is_active', op: 'eq', val: true }],
       order: { col: 'name', ascending: true }
@@ -191,7 +190,7 @@
     var box = document.getElementById('invoicesTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('invoices', {
+    window.db.fetchAll('invoices', {
       select: 'id,invoice_number,customer_id,issue_date,due_date,subtotal,tax_amount,total,status,currency,public_url,invoice_items(id,description,quantity,unit_price)',
       order: { col: 'issue_date', ascending: false }
     }).then(function (res) {
@@ -321,20 +320,28 @@
     tbody.appendChild(tr);
   }
 
+  /* المبالغ تُحسب بالقروش (أعداد صحيحة) ثم تُقسم على 100: جمع الكسور
+     العشرية في JavaScript ينتج 0.30000000000000004، فيختلف الإجمالي المحفوظ
+     عن «قبل الضريبة + الضريبة» بقرش، وقاعدة البيانات ترفضه (I01). */
+  function cents(v) { return Math.round((Number(v) || 0) * 100); }
+
+  function computeTotals(items, rate) {
+    var subC = items.reduce(function (s, it) { return s + Math.round(it.quantity * cents(it.unit_price)); }, 0);
+    var taxC = Math.round(subC * (Number(rate) || 0) / 100);
+    return { subtotal: subC / 100, tax: taxC / 100, total: (subC + taxC) / 100 };
+  }
+
   function recalcTotals() {
-    var sub = 0;
+    var items = [];
     document.querySelectorAll('#itemsBody tr').forEach(function (tr) {
-      var qty = Number(tr.querySelector('.item-qty').value) || 0;
-      var price = Number(tr.querySelector('.item-price').value) || 0;
-      var line = qty * price;
-      sub += line;
-      tr.querySelector('.item-total').textContent = window.utils.formatAmount(line);
+      var it = { quantity: Number(tr.querySelector('.item-qty').value) || 0, unit_price: Number(tr.querySelector('.item-price').value) || 0 };
+      items.push(it);
+      tr.querySelector('.item-total').textContent = window.utils.formatAmount(Math.round(it.quantity * cents(it.unit_price)) / 100);
     });
-    var rate = Number(document.getElementById('taxRate').value) || 0;
-    var tax = Math.round(sub * rate) / 100;
-    document.getElementById('subTotal').textContent = window.utils.formatAmount(sub);
-    document.getElementById('taxAmount').textContent = window.utils.formatAmount(tax);
-    document.getElementById('grandTotal').textContent = window.utils.formatAmount(sub + tax);
+    var t = computeTotals(items, document.getElementById('taxRate').value);
+    document.getElementById('subTotal').textContent = window.utils.formatAmount(t.subtotal);
+    document.getElementById('taxAmount').textContent = window.utils.formatAmount(t.tax);
+    document.getElementById('grandTotal').textContent = window.utils.formatAmount(t.total);
   }
 
   function openForm(inv) {
@@ -381,17 +388,15 @@
       return;
     }
 
-    var sub = items.reduce(function (s, it) { return s + it.quantity * it.unit_price; }, 0);
-    var rate = Number(document.getElementById('taxRate').value) || 0;
-    var tax = Math.round(sub * rate) / 100;
+    var totals = computeTotals(items, document.getElementById('taxRate').value);
 
     var payload = {
       customer_id: document.getElementById('invCustomer').value,
       issue_date: document.getElementById('invIssueDate').value,
       due_date: document.getElementById('invDueDate').value || null,
-      subtotal: sub,
-      tax_amount: tax,
-      total: sub + tax,
+      subtotal: totals.subtotal,
+      tax_amount: totals.tax,
+      total: totals.total,
       status: status || 'draft'
     };
 
@@ -410,31 +415,31 @@
       return;
     }
 
-    var done = function (ok) {
+    var done = function (ok, err) {
       window.utils.setButtonLoading(btn, false);
       if (ok) {
         window.utils.closeModal('invoiceModal');
         window.utils.toast('تم حفظ البيانات بنجاح', 'success');
         loadInvoices();
       } else {
-        window.utils.toast('تعذر حفظ البيانات', 'error');
+        window.utils.toast(window.utils.dbErrorMessage(err, 'تعذر حفظ البيانات'), 'error');
       }
     };
 
     if (state.editingId) {
       sb.from('invoices').update(payload).eq('id', state.editingId).then(function (res) {
-        if (res.error) { done(false); return; }
+        if (res.error) { done(false, res.error); return; }
         sb.from('invoice_items').delete().eq('invoice_id', state.editingId).then(function () {
           var rows = items.map(function (it) { it.invoice_id = state.editingId; return it; });
-          sb.from('invoice_items').insert(rows).then(function (r2) { done(!r2.error); });
+          sb.from('invoice_items').insert(rows).then(function (r2) { done(!r2.error, r2.error); });
         });
       }).catch(function () { done(false); });
     } else {
       sb.from('invoices').insert(payload).select().then(function (res) {
-        if (res.error || !res.data || !res.data.length) { done(false); return; }
+        if (res.error || !res.data || !res.data.length) { done(false, res.error); return; }
         var id = res.data[0].id;
         var rows = items.map(function (it) { it.invoice_id = id; return it; });
-        sb.from('invoice_items').insert(rows).then(function (r2) { done(!r2.error); });
+        sb.from('invoice_items').insert(rows).then(function (r2) { done(!r2.error, r2.error); });
       }).catch(function () { done(false); });
     }
   }
@@ -524,16 +529,14 @@
   }
 
   function deleteInvoice(inv) {
-    window.utils.confirmDialog('هل أنت متأكد من حذف هذه الفاتورة؟ سيتم حذف جميع بنودها ولا يمكن التراجع.').then(function (ok) {
+    window.utils.confirmDialog('هل أنت متأكد من حذف هذه الفاتورة؟ سيتم حذف بنودها، ويُعكس قيدها في الدفاتر إن كانت صادرة.').then(function (ok) {
       if (!ok) return;
-      var sb = window.db.getClient();
-      if (!sb) { window.utils.toast('لم يتم إعداد الاتصال بقاعدة البيانات بعد.', 'error'); return; }
-      sb.from('invoice_items').delete().eq('invoice_id', inv.id).then(function () {
-        sb.from('invoices').delete().eq('id', inv.id).then(function (res) {
-          if (res.error) { window.utils.toast('تعذر حذف الفاتورة', 'error'); return; }
-          window.utils.toast('تم حذف الفاتورة بنجاح', 'success');
-          loadInvoices();
-        });
+      /* حذف الفاتورة وحده: البنود تُحذف معها (on delete cascade). كانت البنود
+         تُحذف أولًا، فإذا رُفض حذف الفاتورة (عليها مقبوضات) بقيت بلا بنود. */
+      window.db.deleteRow('invoices', inv.id).then(function (res) {
+        if (res.error) { window.utils.toast(window.utils.dbErrorMessage(res.error, 'تعذر حذف الفاتورة'), 'error'); return; }
+        window.utils.toast('تم حذف الفاتورة بنجاح', 'success');
+        loadInvoices();
       });
     });
   }

@@ -103,6 +103,18 @@
     return error && error.message === 'SUPABASE_NOT_CONFIGURED';
   }
 
+  /**
+   * رسالة خطأ قاعدة البيانات للمستخدم. قواعد المحاسبة (V.., A.., I.., P.., R.., E.., J..)
+   * ترجع بالعربية وتشرح السبب فتُعرض كما هي؛ وما سواها رسالة عامة.
+   */
+  function dbErrorMessage(error, fallback) {
+    if (!error) return fallback || '';
+    if (isNotConfigured(error)) return 'لم يتم إعداد الاتصال بقاعدة البيانات بعد.';
+    var msg = String(error.message || '').trim();
+    if (/^[A-Z]\d{2}:/.test(msg) || /[\u0600-\u06FF]/.test(msg)) return msg;
+    return fallback || 'تعذر حفظ البيانات';
+  }
+
   /** Standard handler: returns HTML string for an error (config-aware). */
   function errorToState(error, retryId) {
     if (isNotConfigured(error)) {
@@ -128,7 +140,9 @@
     active: { cls: 'badge--success', label: 'نشط' },
     inactive: { cls: 'badge--neutral', label: 'غير نشط' },
     pending: { cls: 'badge--warning', label: 'قيد الانتظار' },
-    approved: { cls: 'badge--success', label: 'معتمد' }
+    approved: { cls: 'badge--success', label: 'معتمد' },
+    rejected: { cls: 'badge--neutral', label: 'مرفوض' },
+    received: { cls: 'badge--info', label: 'مستلمة' }
   };
 
   function statusBadge(status) {
@@ -288,6 +302,7 @@
     errorStateHtml: errorStateHtml,
     errorToState: errorToState,
     isNotConfigured: isNotConfigured,
+    dbErrorMessage: dbErrorMessage,
     statusBadge: statusBadge,
     iconSvg: iconSvg,
     validateForm: validateForm,

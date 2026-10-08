@@ -48,7 +48,7 @@
   function loadStats() {
     var grid = document.getElementById('statsGrid');
 
-    window.db.fetchRows('accounts', { select: 'id,type,balance,is_active' }).then(function (res) {
+    window.db.fetchAll('accounts', { select: 'id,type,balance,is_active' }).then(function (res) {
       if (res.error) {
         grid.innerHTML = window.utils.errorToState(res.error, 'retryStats');
         bindRetry('retryStats', loadStats);
@@ -157,26 +157,18 @@
   function loadActivity() {
     var box = document.getElementById('activityArea');
 
-    window.db.fetchRows('journal_entry_lines', {
-      select: 'debit,credit,journal_entries!inner(entry_date,status)'
-    }).then(function (res) {
+    /* الإيرادات والمصروفات المرحّلة لكل شهر، مجمّعة في قاعدة البيانات.
+       (مقارنة المدين بالدائن لا تفيد: كل قيد متوازن فيتساويان دائمًا.) */
+    window.db.rpc('fn_monthly_activity').then(function (res) {
       if (res.error) {
         box.innerHTML = window.utils.errorToState(res.error, 'retryActivity');
         bindRetry('retryActivity', loadActivity);
         return;
       }
 
-      /* التجميع حسب شهر القيد المحاسبي لا شهر إدخاله، والقيود
-         غير المرحّلة خارج النشاط. */
       var byMonth = {};
-      (res.data || []).forEach(function (l) {
-        var je = l.journal_entries || {};
-        if (je.status && je.status !== 'posted') return;
-        var key = (je.entry_date || '').substring(0, 7);
-        if (!key) return;
-        if (!byMonth[key]) byMonth[key] = { debit: 0, credit: 0 };
-        byMonth[key].debit += Number(l.debit) || 0;
-        byMonth[key].credit += Number(l.credit) || 0;
+      (res.data || []).forEach(function (r) {
+        byMonth[r.month] = { debit: Number(r.revenue) || 0, credit: Number(r.expense) || 0 };
       });
 
       if (!Object.keys(byMonth).length) {
@@ -191,18 +183,18 @@
       var months = Object.keys(byMonth).sort();
       var max = 0;
       months.forEach(function (m) {
-        max = Math.max(max, byMonth[m].debit, byMonth[m].credit);
+        max = Math.max(max, Math.abs(byMonth[m].debit), Math.abs(byMonth[m].credit));
       });
       if (max <= 0) max = 1;
 
       var bars = months.map(function (m) {
         var d = byMonth[m].debit, c = byMonth[m].credit;
-        var dh = Math.round((d / max) * 100);
-        var ch = Math.round((c / max) * 100);
+        var dh = Math.round((Math.max(d, 0) / max) * 100);
+        var ch = Math.round((Math.max(c, 0) / max) * 100);
         return '<div style="flex:1; display:flex; flex-direction:column; align-items:center; gap:6px; min-width:44px;">' +
           '<div style="display:flex; align-items:flex-end; gap:4px; height:120px;">' +
-          '<div title="مدين: ' + window.utils.formatAmount(d) + '" style="width:16px; height:' + dh + '%; background:var(--primary-dark); border-radius:3px 3px 0 0;"></div>' +
-          '<div title="دائن: ' + window.utils.formatAmount(c) + '" style="width:16px; height:' + ch + '%; background:var(--primary); border-radius:3px 3px 0 0;"></div>' +
+          '<div title="إيرادات: ' + window.utils.formatAmount(d) + '" style="width:16px; height:' + dh + '%; background:var(--primary-dark); border-radius:3px 3px 0 0;"></div>' +
+          '<div title="مصروفات: ' + window.utils.formatAmount(c) + '" style="width:16px; height:' + ch + '%; background:var(--primary); border-radius:3px 3px 0 0;"></div>' +
           '</div>' +
           '<span class="text-muted fs-sm num">' + m + '</span>' +
           '</div>';
@@ -210,8 +202,8 @@
 
       box.innerHTML =
         '<div class="d-flex gap-4 mb-4" style="font-size: var(--font-size-sm);">' +
-        '<span class="d-flex align-center gap-2"><span style="width:12px;height:12px;background:var(--primary-dark);border-radius:2px;display:inline-block;"></span> مدين</span>' +
-        '<span class="d-flex align-center gap-2"><span style="width:12px;height:12px;background:var(--primary);border-radius:2px;display:inline-block;"></span> دائن</span>' +
+        '<span class="d-flex align-center gap-2"><span style="width:12px;height:12px;background:var(--primary-dark);border-radius:2px;display:inline-block;"></span> الإيرادات</span>' +
+        '<span class="d-flex align-center gap-2"><span style="width:12px;height:12px;background:var(--primary);border-radius:2px;display:inline-block;"></span> المصروفات</span>' +
         '</div>' +
         '<div class="d-flex align-end gap-3" style="direction:ltr; overflow-x:auto; padding-bottom:4px;">' + bars + '</div>';
     }).catch(function () {

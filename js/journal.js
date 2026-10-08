@@ -161,12 +161,14 @@
   /* ---------- Data ---------- */
 
   function loadAccounts() {
-    return window.db.fetchRows('accounts', {
-      select: 'id,code,name,type',
-      filters: [{ col: 'is_active', op: 'eq', val: true }],
+    /* كل الحسابات لعرض أسمائها في القيود القديمة، والقائمة عند الإدخال للحسابات
+       النشطة القابلة للترحيل فقط: الحساب الأب يرفضه الترحيل (V03). */
+    return window.db.fetchAll('accounts', {
+      select: 'id,code,name,type,is_active,is_postable',
       order: { col: 'code', ascending: true }
     }).then(function (res) {
-      state.accounts = (res && res.data) || [];
+      state.allAccounts = (res && res.data) || [];
+      state.accounts = state.allAccounts.filter(function (a) { return a.is_active && a.is_postable; });
     });
   }
 
@@ -174,8 +176,8 @@
     var box = document.getElementById('entriesTable');
     box.innerHTML = window.utils.loadingHtml();
 
-    window.db.fetchRows('journal_entries', {
-      select: 'id,entry_number,entry_date,description,reference,status,journal_entry_lines(id,account_id,description,debit,credit)',
+    window.db.fetchAll('journal_entries', {
+      select: 'id,entry_number,entry_date,description,reference,status,source,reversal_of,reversed_by,journal_entry_lines(id,account_id,description,debit,credit)',
       order: { col: 'entry_date', ascending: false }
     }).then(function (res) {
       if (res.error) {
@@ -248,13 +250,19 @@
         '<td class="num">' + window.utils.escapeHtml(en.reference || '—') + '</td>' +
         '<td class="num">' + window.utils.formatAmount(d) + '</td>' +
         '<td class="num">' + window.utils.formatAmount(c) + '</td>' +
-        '<td>' + window.utils.statusBadge(en.status || 'draft') + '</td>' +
+        '<td>' + window.utils.statusBadge(en.status || 'draft') +
+        (en.reversed_by ? ' <span class="badge badge--neutral">معكوس</span>' : '') +
+        (en.reversal_of ? ' <span class="badge badge--warning">قيد عكسي</span>' : '') + '</td>' +
         '<td><div class="row-actions">' +
         '<button class="row-action-btn" data-act="view" data-id="' + en.id + '" aria-label="عرض">' + window.utils.iconSvg('eye') + '</button>' +
         /* القيد المرحّل لا يُعدَّل ولا يُحذف — قاعدة البيانات ترفض الأمرين،
            فلا يُعرض زر لا يؤدي إلا إلى رسالة رفض. */
         (en.status === 'posted' ? '' :
           '<button class="row-action-btn" data-act="post" data-id="' + en.id + '" aria-label="ترحيل">' + window.utils.iconSvg('check') + '</button>') +
+        /* التصحيح بقيد عكسي للقيود اليدوية فقط. قيود المستندات (فاتورة، مقبوض،
+           مشتريات، مصروف) تُصحَّح من المستند نفسه، وقاعدة البيانات ترفض عكسها (J01). */
+        (canReverse(en) ?
+          '<button class="row-action-btn row-action-btn--danger" data-act="reverse" data-id="' + en.id + '" aria-label="عكس القيد" title="عكس القيد">' + window.utils.iconSvg('close') + '</button>' : '') +
         '</div></td></tr>';
     });
 
@@ -273,6 +281,7 @@
         if (!en) return;
         if (btn.dataset.act === 'view') viewEntry(en);
         else if (btn.dataset.act === 'post') confirmPost(en);
+        else if (btn.dataset.act === 'reverse') openReverse(en);
       });
     });
   }
@@ -445,7 +454,7 @@
 
   function viewEntry(en) {
     var accountName = {};
-    state.accounts.forEach(function (a) { accountName[a.id] = a.code + ' — ' + a.name; });
+    (state.allAccounts || state.accounts).forEach(function (a) { accountName[a.id] = a.code + ' — ' + a.name; });
 
     var lines = en.journal_entry_lines || [];
     var d = 0, c = 0;
@@ -485,6 +494,57 @@
       postEntry(en.id, function (done, err) {
         if (!done) { window.utils.toast(dbMessage(err) || 'تعذر ترحيل القيد', 'error'); return; }
         window.utils.toast('تم ترحيل القيد بنجاح', 'success');
+        loadEntries();
+      });
+    });
+  }
+
+  function canReverse(en) {
+    return en.status === 'posted' && !en.reversed_by && !en.reversal_of &&
+      (en.source === 'manual' || en.source === 'opening');
+  }
+
+  /* عكس قيد يدوي مرحّل: سبب إلزامي، والتاريخ افتراضيًا تاريخ القيد الأصلي
+     حتى يبقى التصحيح في نفس الفترة. */
+  function openReverse(en) {
+    var old = document.getElementById('reverseModal');
+    if (old) old.remove();
+    var wrap = document.createElement('div');
+    wrap.innerHTML =
+      '<div class="modal-backdrop is-open" id="reverseModal">' +
+      '  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="reverseTitle">' +
+      '    <div class="modal__header"><h3 class="modal__title" id="reverseTitle">عكس القيد ' + window.utils.escapeHtml(en.entry_number || '') + '</h3>' +
+      '      <button class="modal__close" data-close aria-label="إغلاق">' + window.utils.iconSvg('close') + '</button></div>' +
+      '    <form id="reverseForm" novalidate><div class="modal__body">' +
+      '      <p class="text-secondary fs-sm mb-3">يُنشأ قيد جديد بنفس البنود والمبالغ مع تبديل المدين والدائن، فيُلغي أثر القيد في الأرصدة. القيد الأصلي يبقى كما هو للتدقيق.</p>' +
+      '      <div class="form-grid">' +
+      '        <div class="form-field form-grid__full"><label class="form-field__label" for="revReason">سبب العكس <span class="form-field__required">*</span></label>' +
+      '          <input class="input" id="revReason" required><span class="form-field__error">السبب مطلوب</span></div>' +
+      '        <div class="form-field"><label class="form-field__label" for="revDate">تاريخ القيد العكسي <span class="form-field__required">*</span></label>' +
+      '          <input class="input" type="date" id="revDate" required value="' + window.utils.escapeHtml(en.entry_date || '') + '"></div>' +
+      '      </div></div>' +
+      '      <div class="modal__footer"><button type="button" class="btn btn--secondary" data-close>إلغاء</button>' +
+      '        <button type="submit" class="btn btn--danger" id="revSubmit">عكس القيد</button></div>' +
+      '    </form></div></div>';
+    var modal = wrap.firstChild;
+    document.body.appendChild(modal);
+    modal.addEventListener('click', function (e) {
+      if (e.target === modal || e.target.closest('[data-close]')) modal.remove();
+    });
+    document.getElementById('reverseForm').addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (!window.utils.validateForm(e.target)) return;
+      var btn = document.getElementById('revSubmit');
+      window.utils.setButtonLoading(btn, true);
+      window.db.rpc('fn_reverse_entry', {
+        p_entry_id: en.id,
+        p_reason: document.getElementById('revReason').value.trim(),
+        p_date: document.getElementById('revDate').value
+      }).then(function (res) {
+        window.utils.setButtonLoading(btn, false);
+        if (res.error) { window.utils.toast(dbMessage(res.error) || 'تعذر عكس القيد', 'error'); return; }
+        modal.remove();
+        window.utils.toast('تم عكس القيد', 'success');
         loadEntries();
       });
     });
